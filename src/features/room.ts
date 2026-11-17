@@ -4,8 +4,18 @@ import { copyPosition, copyQuaternion } from '../input';
 import { RAPIER } from '../physics';
 
 /** 検出された平面 / メッシュ 1 つぶんの表示と当たり判定 */
+interface Built {
+  root: THREE.Group;
+  debug: THREE.Group;
+  colliderDesc: RAPIER.ColliderDesc | null;
+  label: string;
+  offset: THREE.Vector3;
+}
+
 interface Surface {
   root: THREE.Group;
+  /** 輪郭・ラベルなど、「部屋の形」の表示を切ると消える部分 */
+  debug: THREE.Group;
   collider: RAPIER.Collider | null;
   /** コライダーの中心の、平面ローカル座標でのずれ */
   colliderOffset: THREE.Vector3;
@@ -50,6 +60,9 @@ const MESH_COLOR = 0x5ad1e6;
 const PLANE_HALF_THICKNESS = 0.02;
 const SURFACE_FRICTION = 0.8;
 const SURFACE_RESTITUTION = 0.5;
+/** 影を受ける面を、現実の面から浮かせる距離 (m)。重ねると深度センサーの誤差で影が欠ける。 */
+const SHADOW_LIFT = 0.01;
+const SHADOW_OPACITY = 0.3;
 
 const _position = new THREE.Vector3();
 const _quaternion = new THREE.Quaternion();
@@ -71,10 +84,14 @@ export class Room implements Feature {
   private readonly group = new THREE.Group();
   /** 部屋のデータが無いときに使う、y=0 の仮の床 */
   private fallbackFloor: RAPIER.Collider | null = null;
+  /** 床が検出されていないときに影を受ける、y=0 の面 */
+  private readonly fallbackShadow = makeShadowReceiver(new THREE.PlaneGeometry(12, 12).rotateX(-Math.PI / 2));
   private session: XRSession | null = null;
 
   constructor(private readonly app: App) {
-    app.scene.add(this.group);
+    this.fallbackShadow.visible = false;
+    this.fallbackShadow.position.y = SHADOW_LIFT;
+    app.scene.add(this.group, this.fallbackShadow);
     app.menu.addToggle(
       '部屋の形',
       () => this.visible,
@@ -119,16 +136,17 @@ export class Room implements Feature {
     this.meshes.clear();
     if (this.fallbackFloor) this.app.physics.world.removeCollider(this.fallbackFloor, false);
     this.fallbackFloor = null;
+    this.fallbackShadow.visible = false;
     this.session = null;
   }
 
   update(ctx: FrameContext): void {
-    this.group.visible = this.visible;
     // detectedPlanes / detectedMeshes は「いま見えている集合」。
     // 消えたものは集合から外れ、形が変わったものは lastChangedTime が進む。
     this.sync(ctx, ctx.frame.detectedPlanes, this.planes, (plane) => plane.planeSpace, buildPlane);
     this.sync(ctx, ctx.frame.detectedMeshes, this.meshes, (mesh) => mesh.meshSpace, buildMesh);
     this.fallbackFloor?.setEnabled(this.planes.size === 0 && this.meshes.size === 0);
+    this.fallbackShadow.visible = !this.hasFloor;
   }
 
   private sync<T extends { lastChangedTime: number }>(
@@ -136,7 +154,7 @@ export class Room implements Feature {
     detected: ReadonlySet<T> | undefined,
     surfaces: Map<T, Surface>,
     getSpace: (item: T) => XRSpace,
-    build: (item: T) => { root: THREE.Group; colliderDesc: RAPIER.ColliderDesc | null; label: string; offset: THREE.Vector3 },
+    build: (item: T) => Built,
   ): void {
     if (!detected) return;
     for (const [item, surface] of surfaces) {
@@ -151,6 +169,7 @@ export class Room implements Feature {
         const built = build(item);
         surface = {
           root: built.root,
+          debug: built.debug,
           collider: built.colliderDesc ? this.app.physics.world.createCollider(built.colliderDesc) : null,
           colliderOffset: built.offset,
           lastChangedTime: item.lastChangedTime,
@@ -159,6 +178,7 @@ export class Room implements Feature {
         this.group.add(surface.root);
         surfaces.set(item, surface);
       }
+      surface.debug.visible = this.visible;
       // 形はそれぞれの空間 (planeSpace / meshSpace) のローカル座標で与えられる。
       // 空間の姿勢は毎フレーム変わりうるので、そのつど取り直す。
       const pose = ctx.frame.getPose(getSpace(item), ctx.refSpace);
@@ -195,7 +215,7 @@ function describe(semanticLabel: string | undefined, fallback: string): { name: 
   return name ? { name, text: `${name} (${semanticLabel})` } : { name: semanticLabel, text: semanticLabel };
 }
 
-function buildPlane(plane: XRPlane) {
+function buildPlane(plane: XRPlane): Built {
   // polygon は平面ローカルの XZ 平面上の輪郭 (y は 0)。法線は +Y。
   const points = plane.polygon.map((p) => new THREE.Vector2(p.x, p.z));
   if (points.length > 1 && points[0].equals(points[points.length - 1])) points.pop();
@@ -203,6 +223,8 @@ function buildPlane(plane: XRPlane) {
   const { name, text } = describe(plane.semanticLabel, plane.orientation === 'vertical' ? '垂直面' : '水平面');
   const color = LABEL_COLORS[name] ?? DEFAULT_COLOR;
   const root = new THREE.Group();
+  const debug = new THREE.Group();
+  root.add(debug);
   const min = new THREE.Vector2(Infinity, Infinity);
   const max = new THREE.Vector2(-Infinity, -Infinity);
   const positions = new Float32Array(points.length * 3);
@@ -212,12 +234,12 @@ function buildPlane(plane: XRPlane) {
     min.min(p);
     max.max(p);
   });
-  if (points.length < 3) return { root, colliderDesc: null, label: name, offset: new THREE.Vector3() };
+  if (points.length < 3) return { root, debug, colliderDesc: null, label: name, offset: new THREE.Vector3() };
 
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setIndex(THREE.ShapeUtils.triangulateShape(points, []).flat());
-  root.add(
+  debug.add(
     new THREE.Mesh(
       geometry,
       new THREE.MeshBasicMaterial({
@@ -234,7 +256,12 @@ function buildPlane(plane: XRPlane) {
   const center = new THREE.Vector3((min.x + max.x) / 2, 0, (min.y + max.y) / 2);
   const label = makeLabel(text, color);
   label.position.copy(center).setY(0.04);
-  root.add(label);
+  debug.add(label);
+
+  // 現実の面に仮想物体の影を落とすための、影だけが見える面。
+  const receiver = makeShadowReceiver(geometry);
+  receiver.position.y = SHADOW_LIFT;
+  root.add(receiver);
 
   // 当たり判定は輪郭を囲む薄い箱にする。Quest の平面はほぼ長方形なので、これで足りる。
   const colliderDesc = RAPIER.ColliderDesc.cuboid(
@@ -244,14 +271,16 @@ function buildPlane(plane: XRPlane) {
   )
     .setFriction(SURFACE_FRICTION)
     .setRestitution(SURFACE_RESTITUTION);
-  return { root, colliderDesc, label: name, offset: center };
+  return { root, debug, colliderDesc, label: name, offset: center };
 }
 
-function buildMesh(mesh: XRMesh) {
+function buildMesh(mesh: XRMesh): Built {
   const { name } = describe(mesh.semanticLabel, 'メッシュ');
   const root = new THREE.Group();
+  const debug = new THREE.Group();
+  root.add(debug);
   const offset = new THREE.Vector3();
-  if (mesh.indices.length < 3) return { root, colliderDesc: null, label: name, offset };
+  if (mesh.indices.length < 3) return { root, debug, colliderDesc: null, label: name, offset };
 
   // vertices / indices はそのまま三角形メッシュ。コピーして持つ (元の配列は次の更新で変わりうる)。
   const vertices = new Float32Array(mesh.vertices);
@@ -259,7 +288,7 @@ function buildMesh(mesh: XRMesh) {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
-  root.add(
+  debug.add(
     new THREE.Mesh(
       geometry,
       new THREE.MeshBasicMaterial({ color: MESH_COLOR, wireframe: true, transparent: true, opacity: 0.3 }),
@@ -268,7 +297,17 @@ function buildMesh(mesh: XRMesh) {
   const colliderDesc = RAPIER.ColliderDesc.trimesh(vertices, indices)
     .setFriction(SURFACE_FRICTION)
     .setRestitution(SURFACE_RESTITUTION);
-  return { root, colliderDesc, label: name, offset };
+  return { root, debug, colliderDesc, label: name, offset };
+}
+
+/** ShadowMaterial は影の部分だけを半透明の黒で描く。パススルー映像の上に影だけが乗る。 */
+function makeShadowReceiver(geometry: THREE.BufferGeometry): THREE.Mesh {
+  const receiver = new THREE.Mesh(
+    geometry,
+    new THREE.ShadowMaterial({ opacity: SHADOW_OPACITY, side: THREE.DoubleSide, depthWrite: false }),
+  );
+  receiver.receiveShadow = true;
+  return receiver;
 }
 
 function makeLabel(text: string, color: number): THREE.Sprite {
