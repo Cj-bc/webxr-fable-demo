@@ -3,6 +3,7 @@ import type { App, Feature, FrameContext } from '../app';
 import type { HandState } from '../input';
 import { isHorizontal, orientOnSurface } from '../surface';
 import type { HitTest } from './hitTest';
+import type { OcclusionMode } from './occlusion';
 
 interface PortalInstance {
   /** ステンシルに書く番号。ポータルごとに変えて、中の世界が他の穴から見えないようにする。 */
@@ -134,6 +135,9 @@ function build(ref: number, time: number): PortalInstance {
     }),
   );
   mask.renderOrder = 1;
+  // 遮蔽が「ぼかし」のときは深度バッファに現実の深度が無いので、手前に現実の物がある所は
+  // マスク自身が描かないことで、穴が現実の物の上に出ないようにする。
+  mask.material.userData.occlusion = 'mask' satisfies OcclusionMode;
 
   const depthPunch = new THREE.Mesh(
     disc,
@@ -193,8 +197,14 @@ function build(ref: number, time: number): PortalInstance {
 
 /** ステンシルが ref の所にだけ描く設定 */
 function stencilEqual(ref: number): THREE.MaterialParameters {
-  // three.js では stencilWrite を true にしないと、ステンシルテスト自体が有効にならない。
-  return { stencilWrite: true, stencilRef: ref, stencilFunc: THREE.EqualStencilFunc };
+  return {
+    // three.js では stencilWrite を true にしないと、ステンシルテスト自体が有効にならない。
+    stencilWrite: true,
+    stencilRef: ref,
+    stencilFunc: THREE.EqualStencilFunc,
+    // 中の世界は現実の壁より奥にあるので、現実の深度では隠さない (穴の形はマスクが決める)。
+    userData: { occlusion: 'ignore' satisfies OcclusionMode },
+  };
 }
 
 function skyTexture(hue: number): THREE.CanvasTexture {

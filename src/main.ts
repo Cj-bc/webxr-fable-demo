@@ -44,7 +44,13 @@ status.setDetail('anchors', () => {
   return `${placement.anchoredCount} 個 (うち保存 ${placement.persistentCount}${failures})`;
 });
 status.setDetail('depth-sensing', () =>
-  !occlusion.active ? '深度データなし' : occlusion.enabled ? '遮蔽中' : '受信中 (遮蔽オフ)',
+  !occlusion.active
+    ? '深度データなし'
+    : !occlusion.enabled
+      ? '受信中 (遮蔽オフ)'
+      : occlusion.soft
+        ? '遮蔽中 (ぼかし)'
+        : '遮蔽中 (くっきり)',
 );
 status.setDetail('light-estimation', () => (lighting.estimating ? '推定値を照明に反映中' : '固定の照明'));
 status.setFooter(
