@@ -49,7 +49,7 @@ const CAMERA_FOV_HORIZONTAL = 73;
  * パススルーカメラが、頭の正面に対して下を向いている角度 (度)。これも仮の値。
  * 写真の中の現実の景色が、枠から見えた範囲より下にずれるなら大きく、上にずれるなら小さくする。
  */
-const CAMERA_PITCH_DOWN = 8;
+const CAMERA_PITCH_DOWN = 12;
 /** 頭の向き → カメラの向き の回転 */
 const CAMERA_TILT = new THREE.Quaternion().setFromAxisAngle(
   new THREE.Vector3(1, 0, 0),
@@ -307,7 +307,11 @@ export class HandFrame implements Feature {
     if (!deviceId) {
       // Quest のブラウザには、アバターを映す仮想カメラもある。facingMode の指定が効かずに
       // そちらが選ばれた場合に備えて、名前からも背面のカメラを探す。
-      const back = cameras.find((camera) => /back|rear|environment|passthrough/i.test(camera.label));
+      // Quest 3 では "camera 1, facing back" と "camera 2, facing back" の 2 つがあり、
+      // 画角と傾きの値は camera 2 で合わせてあるので、そちらを優先する。
+      const back =
+        cameras.find((camera) => /camera 2\b.*back/i.test(camera.label)) ??
+        cameras.find((camera) => /back|rear|environment|passthrough/i.test(camera.label));
       if (back && back.deviceId !== current) {
         for (const track of stream.getTracks()) track.stop();
         stream = await media.getUserMedia({ video: { deviceId: { exact: back.deviceId }, ...size } });
