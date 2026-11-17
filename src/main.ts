@@ -46,7 +46,7 @@ status.setDetail('mesh-detection', () => `${room.meshCount} 個`);
 status.setDetail('hit-test', () => (hitTest.usingFallback ? '使えないため y=0 の床で代用' : '配置・ポータルの照準'));
 status.setDetail('anchors', () => {
   const failures = placement.persistFailures > 0 ? `、保存失敗 ${placement.persistFailures}` : '';
-  return `${placement.anchoredCount} 個 (うち保存 ${placement.persistentCount}${failures})`;
+  return `${placement.anchoredCount} 個 (うち保存 ${placement.persistentCount}${failures}) / ${app.persistence.status}`;
 });
 status.setDetail('depth-sensing', () =>
   !occlusion.active

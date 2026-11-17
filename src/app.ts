@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Holding } from './features/holding';
 import { Menu } from './features/menu';
+import { Persistence } from './features/persistence';
 import { Input } from './input';
 import { Physics } from './physics';
 import { Tools } from './tools';
@@ -48,6 +49,8 @@ export class App {
   private readonly headPosition = new THREE.Vector3();
   private readonly headQuaternion = new THREE.Quaternion();
   private lastTime = 0;
+  // 「全部消す」に登録するので、clearHandlers より後で作る。
+  readonly persistence = new Persistence(this);
 
   constructor() {
     this.renderer.setPixelRatio(window.devicePixelRatio);
@@ -58,6 +61,8 @@ export class App {
     this.add(this.input);
     this.add(this.menu);
     this.add(this.holding);
+    // 終了時に、他の機能が物を片付けるより先に保存できるよう、ここで登録する。
+    this.add(this.persistence);
     window.addEventListener('resize', () => {
       if (this.renderer.xr.isPresenting) return;
       this.camera.aspect = window.innerWidth / window.innerHeight;

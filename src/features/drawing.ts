@@ -1,12 +1,21 @@
 import * as THREE from 'three';
 import type { App, Feature } from '../app';
 import type { HandState } from '../input';
+import { round, type SavedPose } from './persistence';
 
 interface Stroke {
   points: THREE.Vector3[];
   mesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
   /** 描き終えている (もう点が増えない) */
   complete: boolean;
+  /** 保存用に丸めて並べた点列。描き終えた線は変わらないので、一度作ったら使い回す。 */
+  savedPoints?: number[];
+}
+
+interface SavedStroke {
+  color: number;
+  points: number[];
+  pose: SavedPose;
 }
 
 const RADIUS = 0.006;
@@ -45,6 +54,27 @@ export class Drawing implements Feature {
       onSelectEnd: (hand) => this.finish(hand),
     });
     app.onClear(() => this.clear());
+    // 描き終えた線だけを保存する。点列は線の座標のまま、線の姿勢と分けて持つ。
+    app.persistence.register<SavedStroke[]>('strokes', {
+      save: () =>
+        this.strokes
+          .filter((stroke) => stroke.complete)
+          .map((stroke) => ({
+            color: stroke.mesh.material.color.getHex(),
+            points: (stroke.savedPoints ??= stroke.points.flatMap((point) => point.toArray().map(round))),
+            pose: app.persistence.poseOf(stroke.mesh),
+          })),
+      restore: (saved) => {
+        for (const { color, points, pose } of saved) {
+          if (points.length < 6) continue;
+          const stroke = this.createStroke(new THREE.Vector3().fromArray(points), color);
+          for (let i = 3; i < points.length; i += 3) stroke.points.push(new THREE.Vector3().fromArray(points, i));
+          rebuild(stroke);
+          app.persistence.place(stroke.mesh, pose);
+          this.complete(stroke);
+        }
+      },
+    });
   }
 
   get count(): number {
