@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { App, Feature, FrameContext } from '../app';
 import type { HandState } from '../input';
 import { RAPIER } from '../physics';
+import type { SavedPose } from './persistence';
 
 export type ToyKind = 'ball' | 'block';
 type GrabButton = 'select' | 'squeeze';
@@ -27,6 +28,12 @@ interface Toy {
     quaternion: THREE.Quaternion;
   } | null;
   lastImpactTime: number;
+}
+
+interface SavedToy {
+  kind: ToyKind;
+  color: number;
+  pose: SavedPose;
 }
 
 /** 球の半径 / ブロックの一辺の半分 (m) */
@@ -84,6 +91,24 @@ export class Toys implements Feature {
     });
     app.onClear(() => this.clear());
     app.physics.onCollisionStart((c1, c2) => this.handleCollision(c1, c2));
+    app.persistence.register<SavedToy[]>('toys', {
+      save: () =>
+        this.toys.map((toy) => ({
+          kind: toy.kind,
+          color: toy.mesh.material.color.getHex(),
+          pose: app.persistence.poseOf(toy.mesh),
+        })),
+      restore: (saved) => {
+        for (const { kind, color, pose } of saved) {
+          if (this.toys.length >= MAX_TOYS) break;
+          const mesh = createMesh(kind, new THREE.Color(color));
+          app.persistence.place(mesh, pose);
+          // 眠らせた状態で戻す。復元の時点では、床や机の当たり判定がまだ届いていないことがあり、
+          // 動ける状態で置くと、そのまま下へ落ちていってしまう。何かが当たるか、つかめば動き出す。
+          this.addToy(kind, mesh, true);
+        }
+      },
+    });
   }
 
   get count(): number {
@@ -124,15 +149,17 @@ export class Toys implements Feature {
       const oldest = this.toys.find((toy) => toy.holders.length === 0);
       if (oldest) this.remove(oldest);
     }
-    const world = this.app.physics.world;
-    const material = new THREE.MeshStandardMaterial({
-      color: new THREE.Color().setHSL(Math.random(), 0.75, 0.55),
-      roughness: kind === 'ball' ? 0.35 : 0.7,
-    });
-    const mesh = new THREE.Mesh(kind === 'ball' ? BALL_GEOMETRY : BLOCK_GEOMETRY, material);
-    mesh.castShadow = true;
+    const mesh = createMesh(kind, new THREE.Color().setHSL(Math.random(), 0.75, 0.55));
     mesh.position.copy(hand.grabPosition);
     mesh.quaternion.copy(hand.grabQuaternion);
+    this.grab(this.addToy(kind, mesh, false), hand, 'select');
+  }
+
+  /** メッシュの位置・向き・大きさに合わせて、物理の剛体を作る。 */
+  private addToy(kind: ToyKind, mesh: Toy['mesh'], sleeping: boolean): Toy {
+    const world = this.app.physics.world;
+    const scale = THREE.MathUtils.clamp(mesh.scale.x, MIN_SCALE, MAX_SCALE);
+    mesh.scale.setScalar(scale);
     this.app.scene.add(mesh);
 
     const body = world.createRigidBody(
@@ -142,14 +169,15 @@ export class Toys implements Feature {
         // 投げた球が薄い壁をすり抜けないよう、連続衝突判定を使う。
         .setCcdEnabled(true)
         .setLinearDamping(0.05)
-        .setAngularDamping(0.4),
+        .setAngularDamping(0.4)
+        .setSleeping(sleeping),
     );
     const toy: Toy = {
       kind,
       mesh,
       body,
-      collider: world.createCollider(colliderDesc(kind, 1), body),
-      scale: 1,
+      collider: world.createCollider(colliderDesc(kind, scale), body),
+      scale,
       holders: [],
       offsetPosition: new THREE.Vector3(),
       offsetQuaternion: new THREE.Quaternion(),
@@ -158,7 +186,7 @@ export class Toys implements Feature {
     };
     this.byCollider.set(toy.collider.handle, toy);
     this.toys.push(toy);
-    this.grab(toy, hand, 'select');
+    return toy;
   }
 
   private tryGrab(hand: HandState, button: GrabButton): boolean {
@@ -294,6 +322,13 @@ export class Toys implements Feature {
       return;
     }
   }
+}
+
+function createMesh(kind: ToyKind, color: THREE.Color): Toy['mesh'] {
+  const material = new THREE.MeshStandardMaterial({ color, roughness: kind === 'ball' ? 0.35 : 0.7 });
+  const mesh = new THREE.Mesh(kind === 'ball' ? BALL_GEOMETRY : BLOCK_GEOMETRY, material);
+  mesh.castShadow = true;
+  return mesh;
 }
 
 function colliderDesc(kind: ToyKind, scale: number): RAPIER.ColliderDesc {
