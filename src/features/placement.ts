@@ -37,6 +37,8 @@ export class Placement implements Feature {
   readonly name = 'placement';
   /** 永続化の上限に達したなどで、保存できなかった回数 */
   persistFailures = 0;
+  /** 物を置いたときの通知 (効果音用) */
+  onPlaced: ((position: THREE.Vector3) => void) | null = null;
 
   private readonly placed: Placed[] = [];
   /** 置く操作をした手。アンカーはフレーム処理の中でしか作れないので、update まで待つ。 */
@@ -161,6 +163,7 @@ export class Placement implements Feature {
     orientOnSurface(hit.position, hit.normal, ctx.headPosition, placed.object.quaternion);
     this.add(placed);
     hand.pulse(0.7, 40);
+    this.onPlaced?.(hit.position);
 
     // XRHitTestResult.createAnchor() でも作れるが、物の向きをこちらで決めたいので
     // 姿勢を指定できる frame.createAnchor() を使う。アンカーの姿勢 = 物の姿勢になる。

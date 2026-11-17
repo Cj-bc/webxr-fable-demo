@@ -38,6 +38,8 @@ const FORWARD = new THREE.Vector3(0, 0, 1);
  */
 export class Portal implements Feature {
   readonly name = 'portal';
+  /** 穴を開けたときの通知 (効果音用) */
+  onOpened: ((position: THREE.Vector3) => void) | null = null;
   private readonly portals: PortalInstance[] = [];
   private time = 0;
 
@@ -98,6 +100,7 @@ export class Portal implements Feature {
     this.app.scene.add(portal.root);
     this.portals.push(portal);
     hand.pulse(1, 80);
+    this.onOpened?.(hit.position);
   }
 
   private dispose(portal: PortalInstance): void {

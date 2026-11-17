@@ -1,4 +1,5 @@
 import { App } from './app';
+import { Audio } from './features/audio';
 import { Cursors } from './features/cursors';
 import { Drawing } from './features/drawing';
 import { HitTest } from './features/hitTest';
@@ -17,11 +18,18 @@ app.add(new Lighting(app));
 app.add(new Occlusion(app));
 app.add(new Cursors(app));
 app.add(new Room(app));
-app.add(new Toys(app));
+const toys = app.add(new Toys(app));
 const hitTest = app.add(new HitTest(app));
-app.add(new Placement(app, hitTest));
+const placement = app.add(new Placement(app, hitTest));
 app.add(new Drawing(app));
-app.add(new Portal(app, hitTest));
+const portal = app.add(new Portal(app, hitTest));
+
+const audio = app.add(new Audio());
+toys.onImpact = (position, speed, kind) => audio.impact(position, speed, kind);
+app.menu.onPress = (position) => audio.click(position);
+placement.onPlaced = (position) => audio.chime(position);
+portal.onOpened = (position) => audio.chime(position);
+
 app.menu.addAction('全部消す', () => app.clearAll());
 // 物理は最後に進める。各機能がこのフレームの入力を物体に反映してから計算するため。
 app.add(app.physics);
@@ -32,6 +40,7 @@ app.onSessionStart = (session) => {
 };
 
 void setupEnterButton(() => {
+  audio.unlock();
   app.enterXR().catch((error: unknown) => {
     console.error(error);
     setMessage(`MR セッションを開始できませんでした: ${error instanceof Error ? error.message : String(error)}`);
