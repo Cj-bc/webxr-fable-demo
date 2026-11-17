@@ -12,6 +12,15 @@
       <p class="lead">自分の部屋で WebXR の複合現実機能を試すサンドボックスです。</p>
       <button id="enter" disabled>MR を開始</button>
       <p id="message" role="status"></p>
+      <p class="camera">
+        <button id="camera">カメラを許可</button>
+        <span id="camera-status">許可すると、手で撮る写真に現実の景色が入ります (MR を開始する前に押してください)。</span>
+      </p>
+      <section id="gallery" hidden>
+        <h2>撮った写真</h2>
+        <p class="note">写真を押すと保存できます。ページを閉じると消えます。</p>
+        <div id="photos"></div>
+      </section>
       <table id="support">
         <thead>
           <tr>

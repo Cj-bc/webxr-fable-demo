@@ -2,6 +2,7 @@ import { App } from './app';
 import { Audio } from './features/audio';
 import { Cursors } from './features/cursors';
 import { Drawing } from './features/drawing';
+import { HandFrame } from './features/handFrame';
 import { HitTest } from './features/hitTest';
 import { Lighting } from './features/lighting';
 import { Occlusion } from './features/occlusion';
@@ -11,7 +12,7 @@ import { Room } from './features/room';
 import { StatusPanel } from './features/statusPanel';
 import { Toys } from './features/toys';
 import type { HandState } from './input';
-import { setMessage, setupEnterButton, showEnabledFeatures } from './landing';
+import { addPhoto, setMessage, setupCameraButton, setupEnterButton, showEnabledFeatures } from './landing';
 
 const app = new App();
 await app.physics.init();
@@ -25,12 +26,16 @@ const hitTest = app.add(new HitTest(app));
 const placement = app.add(new Placement(app, hitTest));
 const drawing = app.add(new Drawing(app));
 const portal = app.add(new Portal(app, hitTest));
+const handFrame = app.add(new HandFrame(app));
 
 const audio = app.add(new Audio());
 toys.onImpact = (position, speed, kind) => audio.impact(position, speed, kind);
 app.menu.onPress = (position) => audio.click(position);
 placement.onPlaced = (position) => audio.chime(position);
 portal.onOpened = (position) => audio.chime(position);
+handFrame.onCapture = (position) => audio.click(position);
+handFrame.onPhoto = (photo) => addPhoto(photo.url, photo.name);
+setupCameraButton(() => handFrame.startCamera());
 
 const status = app.add(new StatusPanel(app));
 const describeHand = (hand: HandState): string => (!hand.tracked ? 'なし' : hand.isHand ? '素手' : 'コントローラー');
@@ -54,7 +59,9 @@ status.setDetail('depth-sensing', () =>
 );
 status.setDetail('light-estimation', () => (lighting.estimating ? '推定値を照明に反映中' : '固定の照明'));
 status.setFooter(
-  () => `おもちゃ ${toys.count} / 配置 ${placement.count} / 線 ${drawing.count} / ポータル ${portal.count}`,
+  () =>
+    `おもちゃ ${toys.count} / 配置 ${placement.count} / 線 ${drawing.count} / ポータル ${portal.count}` +
+    ` / 写真 ${handFrame.photos.length} (${handFrame.cameraReady ? '現実の景色あり' : '仮想物体のみ'})`,
 );
 
 app.menu.addAction('全部消す', () => app.clearAll());

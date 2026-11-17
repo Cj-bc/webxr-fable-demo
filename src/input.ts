@@ -228,7 +228,7 @@ export class Input implements Feature {
   };
 }
 
-function getJointPose(
+export function getJointPose(
   frame: XRFrame,
   hand: XRHand,
   joint: XRHandJoint,

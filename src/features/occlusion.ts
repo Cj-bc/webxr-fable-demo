@@ -155,6 +155,20 @@ function occlusionMode(material: THREE.Material): OcclusionMode {
   return (material.userData.occlusion as OcclusionMode | undefined) ?? 'soft';
 }
 
+/**
+ * 遮蔽なしで描く。XR の画面以外 (写真用のレンダーターゲットなど) へ描くときに使う。
+ * 「ぼかし」方式は XR の画面の画素位置から深度を引くので、別の視点の描画には使えない。
+ */
+export function withoutOcclusion(render: () => void): void {
+  const strength = softUniforms.xrOcclusionStrength.value;
+  softUniforms.xrOcclusionStrength.value = 0;
+  try {
+    render();
+  } finally {
+    softUniforms.xrOcclusionStrength.value = strength;
+  }
+}
+
 let installed = false;
 
 /**
