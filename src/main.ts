@@ -35,7 +35,7 @@ placement.onPlaced = (position) => audio.chime(position);
 portal.onOpened = (position) => audio.chime(position);
 handFrame.onCapture = (position) => audio.click(position);
 handFrame.onPhoto = (photo) => addPhoto(photo.url, photo.name);
-setupCameraButton(() => handFrame.startCamera());
+setupCameraButton((deviceId) => handFrame.startCamera(deviceId));
 
 const status = app.add(new StatusPanel(app));
 const describeHand = (hand: HandState): string => (!hand.tracked ? 'なし' : hand.isHand ? '素手' : 'コントローラー');
@@ -61,7 +61,9 @@ status.setDetail('light-estimation', () => (lighting.estimating ? '推定値を�
 status.setFooter(
   () =>
     `おもちゃ ${toys.count} / 配置 ${placement.count} / 線 ${drawing.count} / ポータル ${portal.count}` +
-    ` / 写真 ${handFrame.photos.length} (${handFrame.cameraReady ? '現実の景色あり' : '仮想物体のみ'})`,
+    ` / 写真 ${handFrame.photos.length} (${
+      handFrame.cameraLive ? 'カメラ映像あり' : handFrame.cameraReady ? 'カメラ映像が止まっている' : 'カメラなし'
+    })`,
 );
 
 app.menu.addAction('全部消す', () => app.clearAll());

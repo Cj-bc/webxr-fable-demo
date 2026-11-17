@@ -78,6 +78,23 @@ h1 {
   cursor: default;
 }
 
+#camera-preview video {
+  display: block;
+  width: 320px;
+  max-width: 100%;
+  margin-top: 8px;
+  border-radius: 6px;
+}
+
+#camera-select {
+  padding: 6px 8px;
+  border: 1px solid #3a4254;
+  border-radius: 6px;
+  background: #1a2030;
+  color: inherit;
+  font-size: 14px;
+}
+
 h2 {
   margin: 24px 0 4px;
   font-size: 18px;

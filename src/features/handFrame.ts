@@ -13,7 +13,18 @@ const INDEX_STRAIGHT_HOLD = 0.75;
 const THUMB_OPEN = 0.6;
 const THUMB_FOLD = 0.4;
 /** 指が枠の内側を向いているとみなす、対角線の向きとの内積の下限 */
-const INWARD_MIN = 0.15;
+const INWARD_MIN = 0.25;
+/**
+ * 指が視線に対して横に寝ているとみなす、視線の向きとの内積 (絶対値) の上限。枠を作るとき / 保つとき。
+ * 道具を使うときは人差し指が前 (視線の向き) を指すので、ここで枠と区別する。
+ */
+const ACROSS_VIEW_FORM = 0.5;
+const ACROSS_VIEW_HOLD = 0.7;
+/** 両手の人差し指どうし・親指どうしが逆を向いているとみなす、内積の上限。枠を作るとき / 保つとき */
+const OPPOSED_FORM = -0.5;
+const OPPOSED_HOLD = -0.2;
+/** 枠の形をこの秒数だけ保つと、枠が出る。手を動かす途中で一瞬その形になっただけでは出さない。 */
+const FORM_DELAY = 0.35;
 /** 枠の一辺の長さの範囲 (m) */
 const MIN_SIDE = 0.04;
 const MAX_SIDE = 0.7;
@@ -25,6 +36,8 @@ const COOLDOWN = 0.8;
 const CAPTURE_SIZE = 1280;
 /** 空間に残す写真の枚数。超えたら古いものから消す (保存用の一覧には残る)。 */
 const MAX_WORLD_PHOTOS = 8;
+/** 空間に残す写真の、枠に対する大きさ */
+const PHOTO_SCALE = 0.6;
 const BORDER = 0.004;
 const FLASH_DURATION = 0.25;
 /**
@@ -96,6 +109,14 @@ export interface Photo {
   name: string;
 }
 
+export interface CameraInfo {
+  /** 映像を再生している要素。ページに置けば、何が映っているか確かめられる。 */
+  video: HTMLVideoElement;
+  cameras: { deviceId: string; label: string }[];
+  /** 使用中のカメラ */
+  deviceId: string;
+}
+
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
 const _c = new THREE.Vector3();
@@ -154,6 +175,8 @@ export class HandFrame implements Feature {
   private readonly left = newFrameHand();
   private readonly right = newFrameHand();
   private active = false;
+  /** 枠の形になり始めた時刻。なっていなければ負 */
+  private formingSince = -1;
   private activeSince = 0;
   private lastCapture = -Infinity;
   private flashUntil = 0;
@@ -195,6 +218,9 @@ export class HandFrame implements Feature {
 
   private video: HTMLVideoElement | null = null;
   private videoTexture: THREE.VideoTexture | null = null;
+  private time = 0;
+  private lastVideoTime = 0;
+  private videoAdvancedAt = -Infinity;
 
   constructor(private readonly app: App) {
     // Color は内部でリニアに直されるので、シェーダーに渡す sRGB の値を取り直す。
@@ -245,16 +271,40 @@ export class HandFrame implements Feature {
     return video !== null && video.readyState >= 2 && video.videoWidth > 0;
   }
 
+  /** カメラの映像が、いまも更新され続けているか。MR セッション中に止まる環境を見分けるためのもの。 */
+  get cameraLive(): boolean {
+    return this.cameraReady && this.time - this.videoAdvancedAt < 1;
+  }
+
   /**
-   * パススルーカメラの映像を取り始める。許可のダイアログが出るので、MR を始める前に、
+   * カメラの映像を取り始める。許可のダイアログが出るので、MR を始める前に、
    * ユーザー操作 (ボタンのクリック) の中で呼ぶ。
+   * deviceId を省くと、背面 (パススルー) のカメラらしいものを選ぶ。
    */
-  async startCamera(): Promise<boolean> {
-    if (this.video) return true;
-    if (!navigator.mediaDevices?.getUserMedia) return false;
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 960 } },
+  async startCamera(deviceId?: string): Promise<CameraInfo | null> {
+    const media = navigator.mediaDevices;
+    if (!media?.getUserMedia) return null;
+    const size = { width: { ideal: 1280 }, height: { ideal: 960 } };
+    this.stopCamera();
+    let stream = await media.getUserMedia({
+      video: deviceId ? { deviceId: { exact: deviceId }, ...size } : { facingMode: 'environment', ...size },
     });
+    // カメラの名前は、許可が下りたあとでないと読めない。
+    const cameras = (await media.enumerateDevices())
+      .filter((device) => device.kind === 'videoinput')
+      .map((device, i) => ({ deviceId: device.deviceId, label: device.label || `カメラ ${i + 1}` }));
+    let current = stream.getVideoTracks()[0]?.getSettings().deviceId ?? '';
+    if (!deviceId) {
+      // Quest のブラウザには、アバターを映す仮想カメラもある。facingMode の指定が効かずに
+      // そちらが選ばれた場合に備えて、名前からも背面のカメラを探す。
+      const back = cameras.find((camera) => /back|rear|environment|passthrough/i.test(camera.label));
+      if (back && back.deviceId !== current) {
+        for (const track of stream.getTracks()) track.stop();
+        stream = await media.getUserMedia({ video: { deviceId: { exact: back.deviceId }, ...size } });
+        current = back.deviceId;
+      }
+    }
+
     const video = document.createElement('video');
     video.srcObject = stream;
     video.muted = true;
@@ -266,11 +316,31 @@ export class HandFrame implements Feature {
     this.video = video;
     this.videoTexture = texture;
     this.compositeMaterial.uniforms.videoMap.value = texture;
-    return true;
+    return { video, cameras, deviceId: current };
+  }
+
+  private stopCamera(): void {
+    const stream = this.video?.srcObject as MediaStream | null | undefined;
+    for (const track of stream?.getTracks() ?? []) track.stop();
+    this.video?.remove();
+    this.videoTexture?.dispose();
+    this.video = null;
+    this.videoTexture = null;
+    this.compositeMaterial.uniforms.videoMap.value = null;
+  }
+
+  private trackVideo(time: number): void {
+    this.time = time;
+    const videoTime = this.video?.currentTime ?? 0;
+    if (videoTime !== this.lastVideoTime) {
+      this.lastVideoTime = videoTime;
+      this.videoAdvancedAt = time;
+    }
   }
 
   start(): void {
     this.active = false;
+    this.formingSince = -1;
     this.left.folded = false;
     this.right.folded = false;
   }
@@ -287,13 +357,20 @@ export class HandFrame implements Feature {
     const input = this.app.input;
     const readable =
       this.enabled && this.readHand(ctx, input.left, this.left) && this.readHand(ctx, input.right, this.right);
-    this.active = readable && this.checkShape(ctx.headPosition);
-    if (!this.active) {
+    const shaped = readable && this.checkShape(ctx.headPosition);
+    if (!shaped) {
+      this.active = false;
+      this.formingSince = -1;
       this.left.folded = false;
       this.right.folded = false;
-    } else if (!wasActive) {
-      this.activeSince = ctx.time;
+    } else if (!this.active) {
+      if (this.formingSince < 0) this.formingSince = ctx.time;
+      if (ctx.time - this.formingSince >= FORM_DELAY) {
+        this.active = true;
+        this.activeSince = ctx.time;
+      }
     }
+    this.trackVideo(ctx.time);
 
     if (this.active) {
       // 親指を倒すと手の形が変わって枠の角がずれるので、倒している間は枠を動かさない。
@@ -360,14 +437,36 @@ export class HandFrame implements Feature {
     const reach = _c.addVectors(left.corner, right.corner).multiplyScalar(0.5).distanceTo(head);
     if (reach < 0.1 || reach > 1) return false;
 
+    _diagonal.divideScalar(distance);
+    const view = _normal.copy(_c).sub(head).normalize();
+    const leftAcross = Math.abs(left.indexDirection.dot(view));
+    const rightAcross = Math.abs(right.indexDirection.dot(view));
+    const indexOpposed = left.indexDirection.dot(right.indexDirection);
+
     if (this.active) {
-      return left.indexStraightness > INDEX_STRAIGHT_HOLD && right.indexStraightness > INDEX_STRAIGHT_HOLD;
+      // 撮るために親指を倒している間も枠を保つので、親指の形は見ない。ただし両方倒したら枠をやめる。
+      // 人差し指が前を指す、曲がる、同じ向きに揃う、のどれかで枠は消える。
+      return (
+        left.indexStraightness > INDEX_STRAIGHT_HOLD &&
+        right.indexStraightness > INDEX_STRAIGHT_HOLD &&
+        leftAcross < ACROSS_VIEW_HOLD &&
+        rightAcross < ACROSS_VIEW_HOLD &&
+        indexOpposed < OPPOSED_HOLD &&
+        left.indexDirection.dot(_diagonal) > 0 &&
+        right.indexDirection.dot(_diagonal) < 0 &&
+        !(left.folded && right.folded)
+      );
     }
     if (left.indexStraightness < INDEX_STRAIGHT_FORM || right.indexStraightness < INDEX_STRAIGHT_FORM) return false;
     if (left.folded || right.folded || left.thumbGap < THUMB_OPEN || right.thumbGap < THUMB_OPEN) return false;
-    // 両手の L 字が向かい合っていること。それぞれの指が、相手の手の角へ向かう成分を持つ。
-    // 両手をただ広げて並べただけの形は、人差し指が対角線と直交するので、ここで外れる。
-    _diagonal.divideScalar(distance);
+    // 指が視線に対して横に寝ていること。レイで何かを指している手は、ここで外れる。
+    if (leftAcross > ACROSS_VIEW_FORM || rightAcross > ACROSS_VIEW_FORM) return false;
+    if (Math.abs(left.thumbDirection.dot(view)) > ACROSS_VIEW_HOLD) return false;
+    if (Math.abs(right.thumbDirection.dot(view)) > ACROSS_VIEW_HOLD) return false;
+    // 両手の L 字が、互い違いに向かい合っていること。人差し指どうし、親指どうしが逆を向き、
+    // それぞれの指が相手の手の角へ向かう成分を持つ。両手をただ広げて並べた形は、ここで外れる。
+    if (indexOpposed > OPPOSED_FORM) return false;
+    if (left.thumbDirection.dot(right.thumbDirection) > OPPOSED_HOLD) return false;
     if (left.indexDirection.dot(_diagonal) < INWARD_MIN || left.thumbDirection.dot(_diagonal) < INWARD_MIN) return false;
     if (right.indexDirection.dot(_diagonal) > -INWARD_MIN || right.thumbDirection.dot(_diagonal) > -INWARD_MIN) {
       return false;
@@ -458,6 +557,8 @@ export class HandFrame implements Feature {
     renderer.getClearColor(_clearColor);
     const frameVisible = this.frame.visible;
     this.frame.visible = false;
+    // 前に撮った写真は写さない。同じ場所で続けて撮ると、前の写真が景色を覆ってしまう。
+    for (const photo of this.worldPhotos) photo.visible = false;
     try {
       renderer.xr.enabled = false;
       renderer.setClearColor(0x000000, 0);
@@ -471,6 +572,7 @@ export class HandFrame implements Feature {
       renderer.setClearColor(_clearColor, previousAlpha);
       renderer.xr.enabled = previousXr;
       this.frame.visible = frameVisible;
+      for (const photo of this.worldPhotos) photo.visible = true;
     }
 
     // 読み出した画素は下の行から並んでいるので、上下を入れ替えてキャンバスに置く。
@@ -516,8 +618,11 @@ export class HandFrame implements Feature {
     );
     mount.position.z = -0.001;
     photo.add(mount, picture);
-    photo.position.copy(this.center);
+    // 枠の位置にそのまま残すと次に撮る景色を塞ぐので、縮めて枠の下に置く。
+    photo.scale.setScalar(PHOTO_SCALE);
     photo.quaternion.copy(this.quaternion);
+    _up.set(0, 1, 0).applyQuaternion(this.quaternion);
+    photo.position.copy(this.center).addScaledVector(_up, -(this.height * (1 + PHOTO_SCALE)) / 2 - 0.03);
     this.app.scene.add(photo);
     this.worldPhotos.push(photo);
     while (this.worldPhotos.length > MAX_WORLD_PHOTOS) this.removeWorldPhoto(this.worldPhotos.shift()!);

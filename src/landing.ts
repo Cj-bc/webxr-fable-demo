@@ -1,3 +1,4 @@
+import type { CameraInfo } from './features/handFrame';
 import { ALL_FEATURES } from './xrFeatures';
 
 const enterButton = document.querySelector<HTMLButtonElement>('#enter')!;
@@ -38,27 +39,44 @@ export async function setupEnterButton(onEnter: () => void): Promise<void> {
 
 /**
  * カメラの許可ボタン。許可のダイアログは MR セッション中には出せないので、開始前に押してもらう。
- * onRequest は、映像が取れたら true を返す。
+ * 取れた映像はページに表示し、どのカメラが使われているかを目で確かめられるようにする。
+ * onRequest は、deviceId のカメラ (省略時はおまかせ) の映像を取り始める。使えなければ null を返す。
  */
-export function setupCameraButton(onRequest: () => Promise<boolean>): void {
+export function setupCameraButton(onRequest: (deviceId?: string) => Promise<CameraInfo | null>): void {
   const button = document.querySelector<HTMLButtonElement>('#camera')!;
   const status = document.querySelector<HTMLSpanElement>('#camera-status')!;
-  button.addEventListener('click', () => {
+  const preview = document.querySelector<HTMLDivElement>('#camera-preview')!;
+  const select = document.querySelector<HTMLSelectElement>('#camera-select')!;
+
+  const request = (deviceId?: string): void => {
     button.disabled = true;
-    status.textContent = 'カメラの許可を待っています…';
-    onRequest().then(
-      (ok) => {
-        status.textContent = ok
-          ? 'カメラを使えます。手で撮る写真に現実の景色が入ります。'
-          : 'このブラウザではカメラを使えません。写真は仮想物体だけになります。';
-      },
-      (error: unknown) => {
-        console.error(error);
-        button.disabled = false;
-        status.textContent = `カメラを使えませんでした: ${error instanceof Error ? error.message : String(error)}`;
-      },
-    );
-  });
+    select.disabled = true;
+    status.textContent = 'カメラの映像を待っています…';
+    onRequest(deviceId)
+      .then(
+        (info) => {
+          if (!info) {
+            status.textContent = 'このブラウザではカメラを使えません。写真は仮想物体だけになります。';
+            return;
+          }
+          const { video, cameras } = info;
+          status.textContent = `カメラを使えます (${video.videoWidth}×${video.videoHeight})。`;
+          select.replaceChildren(...cameras.map((camera) => new Option(camera.label, camera.deviceId)));
+          select.value = info.deviceId;
+          preview.querySelector('video')?.remove();
+          preview.append(video);
+          preview.hidden = false;
+        },
+        (error: unknown) => {
+          console.error(error);
+          button.disabled = false;
+          status.textContent = `カメラを使えませんでした: ${error instanceof Error ? error.message : String(error)}`;
+        },
+      )
+      .finally(() => (select.disabled = false));
+  };
+  button.addEventListener('click', () => request());
+  select.addEventListener('change', () => request(select.value));
 }
 
 /** 撮った写真を一覧に足す。押すと保存できる。 */
