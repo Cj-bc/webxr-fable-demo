@@ -51,13 +51,21 @@ export class Menu implements Feature {
 
   private readonly items: MenuItem[] = [];
   private panel: CanvasPanel | null = null;
+  /** ボタンの構成が変わったので、パネルを作り直す必要がある */
+  private layoutDirty = true;
+  /** 見た目が変わったので、描き直す必要がある */
   private dirty = true;
+  private toolCount = 0;
   private time = 0;
   private placedInFront = false;
   private readonly pokeArmed = new Map<HandState, boolean>();
 
   constructor(private readonly app: App) {
-    app.tools.onChange = () => this.syncTools();
+    app.tools.onChange = () => {
+      // 道具の選択が変わっただけなら、描き直すだけでよい。
+      if (app.tools.list.length !== this.toolCount) this.syncTools();
+      this.dirty = true;
+    };
     app.tools.addInterceptor((hand) => this.tryRayPress(hand));
     this.syncTools();
   }
@@ -73,7 +81,7 @@ export class Menu implements Feature {
   start(): void {
     this.placedInFront = false;
     this.pokeArmed.clear();
-    this.rebuild();
+    this.layoutDirty = true;
   }
 
   end(): void {
@@ -81,6 +89,7 @@ export class Menu implements Feature {
   }
 
   update(ctx: FrameContext): void {
+    if (this.layoutDirty) this.rebuild();
     const panel = this.panel;
     if (!panel) return;
     this.time = ctx.time;
@@ -93,7 +102,7 @@ export class Menu implements Feature {
     if (this.dirty) this.draw(panel);
   }
 
-  /** 道具の一覧は Tools が持っているので、変化のたびにボタンを作り直す。 */
+  /** 道具の一覧は Tools が持っているので、道具が増えたらボタンを作り直す。 */
   private syncTools(): void {
     const tools = this.app.tools;
     const others = this.items.filter((item) => item.group !== 'tool');
@@ -107,18 +116,18 @@ export class Menu implements Feature {
       );
     }
     this.items.push(...others);
-    if (this.panel) this.rebuild();
-    this.dirty = true;
+    this.toolCount = tools.list.length;
   }
 
   private addItem(group: Group, label: string, isActive: () => boolean, press: () => void): void {
     this.items.push({ group, label, isActive, press, x: 0, y: 0, width: 0, height: 0, flashUntil: 0 });
-    if (this.panel) this.rebuild();
-    this.dirty = true;
+    // ここでは作り直さない。フレーム処理の途中でパネルを差し替えると、古い方に描いてしまう。
+    this.layoutDirty = true;
   }
 
   /** ボタンの数からレイアウトを決め、パネルを作り直す。 */
   private rebuild(): void {
+    this.layoutDirty = false;
     const widthPx = PANEL_WIDTH * PIXELS_PER_METER;
     const buttonWidth = (widthPx - MARGIN * (COLUMNS + 1)) / COLUMNS;
     let y = HEADER_HEIGHT;
@@ -221,9 +230,11 @@ export class Menu implements Feature {
     this.onPress?.(hand.tipPosition);
     try {
       item.press();
-    } finally {
-      this.dirty = true;
+    } catch (error) {
+      // ボタンの処理の失敗で、メニューごと止まらないようにする。
+      console.error(`[menu] 「${item.label}」の処理に失敗しました`, error);
     }
+    this.dirty = true;
   }
 
   private draw(panel: CanvasPanel): void {
