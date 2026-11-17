@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { Holding } from './features/holding';
 import { Menu } from './features/menu';
 import { Input } from './input';
 import { Physics } from './physics';
@@ -35,6 +36,7 @@ export class App {
   readonly input = new Input();
   readonly tools = new Tools(this.input);
   readonly menu = new Menu(this);
+  readonly holding = new Holding(this);
   readonly physics = new Physics();
   session: XRSession | null = null;
   onSessionStart: ((session: XRSession) => void) | null = null;
@@ -55,6 +57,7 @@ export class App {
     document.body.appendChild(this.renderer.domElement);
     this.add(this.input);
     this.add(this.menu);
+    this.add(this.holding);
     window.addEventListener('resize', () => {
       if (this.renderer.xr.isPresenting) return;
       this.camera.aspect = window.innerWidth / window.innerHeight;

@@ -5,6 +5,8 @@ import type { HandState } from '../input';
 interface Stroke {
   points: THREE.Vector3[];
   mesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
+  /** 描き終えている (もう点が増えない) */
+  complete: boolean;
 }
 
 const RADIUS = 0.006;
@@ -13,10 +15,20 @@ const MIN_STEP = 0.008;
 /** 1 本の線の点数の上限。超えたら新しい線に切り替える (点が増えるほど作り直しが重くなるため)。 */
 const MAX_POINTS = 400;
 const COLORS = [0xff6b6b, 0xffd166, 0x6fe09a, 0x4f8cff, 0xc58cff, 0xffffff];
+/** 線どうしがこの距離より近ければ、ひとつの絵として一緒に持つ (m)。線を囲む箱どうしで比べる。 */
+const LINK_MARGIN = 0.02;
+
+const _local = new THREE.Vector3();
+const _segment = new THREE.Vector3();
+const _closest = new THREE.Vector3();
 
 /**
  * 空中に線を描く。素手ではつまんだ指先、コントローラーではトリガーを引いた先端が筆になる。
  * 線は空間に残るので、歩き回って別の角度から見られる。
+ *
+ * 描き終えた線は、持って動かせる (Holding)。重なっている線は、ひとつの絵としてまとめて動く。
+ * お絵描きの道具を選んでいる間は、つまみは描くことに使うので、持つには別の道具に切り替える
+ * (コントローラーのグリップなら、いつでも持てる)。
  */
 export class Drawing implements Feature {
   readonly name = 'drawing';
@@ -29,6 +41,7 @@ export class Drawing implements Feature {
       id: 'draw',
       label: 'お絵描き',
       hint: 'つまむ/トリガーを引いたまま動かして描く',
+      overridesHold: true,
       onSelectStart: (hand) => this.begin(hand),
       onSelectEnd: (hand) => this.finish(hand),
     });
@@ -61,6 +74,7 @@ export class Drawing implements Feature {
         // 続きは新しい線で描く。同じ色・同じ点から始めるので、見た目はつながる。
         const next = this.createStroke(point, stroke.mesh.material.color.getHex());
         this.active.set(hand, next);
+        this.complete(stroke);
       }
     }
   }
@@ -75,11 +89,54 @@ export class Drawing implements Feature {
   private finish(hand: HandState): void {
     const stroke = this.active.get(hand);
     this.active.delete(hand);
+    if (!stroke) return;
     // 動かさずに離した場合は、線にならないので捨てる。
-    if (stroke && stroke.points.length < 2) {
+    if (stroke.points.length < 2) {
       this.dispose(stroke);
       this.strokes.splice(this.strokes.indexOf(stroke), 1);
+    } else {
+      this.complete(stroke);
     }
+  }
+
+  /** 描き終えた線を、持てるようにする。 */
+  private complete(stroke: Stroke): void {
+    const { mesh, points } = stroke;
+    mesh.geometry.computeBoundingBox();
+    stroke.complete = true;
+    this.app.holding.add({
+      object: mesh,
+      // 持って動かしたあとは、点列 (描いたときの座標) とワールド座標がずれるので、線の座標に直して測る。
+      distanceTo: (point) => {
+        const local = mesh.worldToLocal(_local.copy(point));
+        let nearest = Infinity;
+        for (let i = 1; i < points.length; i++) {
+          nearest = Math.min(nearest, distanceToSegment(local, points[i - 1], points[i]));
+        }
+        return nearest - RADIUS;
+      },
+      group: () => this.linked(stroke).map((linked) => linked.mesh),
+    });
+  }
+
+  /** 指定した線と、重なりをたどってつながる線すべて。描いている途中の線は含めない。 */
+  private linked(start: Stroke): Stroke[] {
+    const boxes = new Map<Stroke, THREE.Box3>();
+    for (const stroke of this.strokes) {
+      const box = stroke.mesh.geometry.boundingBox;
+      if (!stroke.complete || !box) continue;
+      stroke.mesh.updateMatrixWorld();
+      boxes.set(stroke, box.clone().applyMatrix4(stroke.mesh.matrixWorld).expandByScalar(LINK_MARGIN / 2));
+    }
+    const group = [start];
+    for (let i = 0; i < group.length; i++) {
+      const box = boxes.get(group[i]);
+      if (!box) continue;
+      for (const [stroke, other] of boxes) {
+        if (!group.includes(stroke) && box.intersectsBox(other)) group.push(stroke);
+      }
+    }
+    return group;
   }
 
   private createStroke(start: THREE.Vector3, color: number): Stroke {
@@ -94,13 +151,14 @@ export class Drawing implements Feature {
     // 線は長く伸びるので、作り直すたびに境界を計算するより、常に描画対象にする。
     mesh.frustumCulled = false;
     this.app.scene.add(mesh);
-    const stroke: Stroke = { points: [start.clone()], mesh };
+    const stroke: Stroke = { points: [start.clone()], mesh, complete: false };
     this.strokes.push(stroke);
     return stroke;
   }
 
   private dispose(stroke: Stroke): void {
     this.app.scene.remove(stroke.mesh);
+    this.app.holding.remove(stroke.mesh);
     stroke.mesh.geometry.dispose();
     stroke.mesh.material.dispose();
   }
@@ -108,6 +166,13 @@ export class Drawing implements Feature {
 
 function penPosition(hand: HandState): THREE.Vector3 {
   return hand.isHand ? hand.grabPosition : hand.tipPosition;
+}
+
+/** 点 p から線分 ab までの距離 */
+function distanceToSegment(p: THREE.Vector3, a: THREE.Vector3, b: THREE.Vector3): number {
+  _segment.subVectors(b, a);
+  const t = THREE.MathUtils.clamp(_closest.subVectors(p, a).dot(_segment) / Math.max(_segment.lengthSq(), 1e-8), 0, 1);
+  return _closest.copy(a).addScaledVector(_segment, t).distanceTo(p);
 }
 
 /** 点列をなめらかな曲線でつなぎ、チューブ状のメッシュにする。 */

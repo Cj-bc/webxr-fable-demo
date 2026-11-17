@@ -172,6 +172,8 @@ function distanceToSegment(p: THREE.Vector3, a: THREE.Vector3, b: THREE.Vector3)
  * 手の形は hand-tracking の関節の位置から判定する。片手ごとに「人差し指が伸び、親指が開いている (L 字)」
  * ことを調べ、両手の L 字の角を対角とする四角形を、頭から見て正面を向く向きに作る。
  *
+ * 撮った写真は空間に残り、つまんで持ち運べる (Holding)。
+ *
  * 写真は、頭の位置から枠を通して見た範囲を、仮想物体だけレンダーターゲットに描いて作る。
  * WebXR のフレームバッファにはパススルー映像が入っていない (合成は OS 側で行われる) ので、
  * 現実の景色は getUserMedia で取ったパススルーカメラの映像から、同じ範囲を切り出して下に敷く。
@@ -643,6 +645,19 @@ export class HandFrame implements Feature {
     _up.set(0, 1, 0).applyQuaternion(this.quaternion);
     photo.position.copy(this.center).addScaledVector(_up, -(this.height * (1 + PHOTO_SCALE)) / 2 - 0.03);
     this.app.scene.add(photo);
+    const halfWidth = this.width / 2;
+    const halfHeight = this.height / 2;
+    this.app.holding.add({
+      object: photo,
+      // 枠を作っている手が、すぐ下にある写真をつまんでしまわないようにする。
+      canHold: () => !this.active,
+      distanceTo: (point) => {
+        const local = photo.worldToLocal(_a.copy(point));
+        const x = Math.max(Math.abs(local.x) - halfWidth, 0);
+        const y = Math.max(Math.abs(local.y) - halfHeight, 0);
+        return Math.hypot(x, y, local.z) * photo.scale.x;
+      },
+    });
     this.worldPhotos.push(photo);
     while (this.worldPhotos.length > MAX_WORLD_PHOTOS) this.removeWorldPhoto(this.worldPhotos.shift()!);
   }
@@ -654,6 +669,7 @@ export class HandFrame implements Feature {
 
   private removeWorldPhoto(photo: THREE.Group): void {
     this.app.scene.remove(photo);
+    this.app.holding.remove(photo);
     for (const child of photo.children) {
       const mesh = child as THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
       mesh.geometry.dispose();

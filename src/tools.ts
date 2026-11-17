@@ -6,6 +6,8 @@ export interface Tool {
   label: string;
   /** メニューに出す 1 行の操作説明 */
   hint: string;
+  /** つまみ / トリガーを、近くの写真や線を持つこと (Holding) より優先する */
+  overridesHold?: boolean;
   onSelectStart(hand: HandState): void;
   onSelectEnd?(hand: HandState): void;
 }
