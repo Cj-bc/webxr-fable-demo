@@ -4,10 +4,13 @@ import type { HandState } from '../input';
 import { isHorizontal, orientOnSurface } from '../surface';
 import type { HitTest } from './hitTest';
 import type { OcclusionMode } from './occlusion';
+import type { SavedPose } from './persistence';
 
 interface PortalInstance {
   /** ステンシルに書く番号。ポータルごとに変えて、中の世界が他の穴から見えないようにする。 */
   ref: number;
+  /** 縁と中の世界の色合い (0〜1) */
+  hue: number;
   root: THREE.Group;
   /** 穴の縁・マスクなど、開くときに拡大する部分 */
   opening: THREE.Group;
@@ -56,6 +59,16 @@ export class Portal implements Feature {
       onSelectStart: (hand) => this.open(hand),
     });
     app.onClear(() => this.clear());
+    // 色合いだけを覚える。中の世界の物の色や星の位置は乱数で決めているので、復元のたびに少し変わる。
+    app.persistence.register<{ hue: number; pose: SavedPose }[]>('portals', {
+      save: () => this.portals.map((portal) => ({ hue: portal.hue, pose: app.persistence.poseOf(portal.root) })),
+      restore: (saved) => {
+        for (const { hue, pose } of saved) {
+          if (this.portals.length >= MAX_PORTALS) break;
+          app.persistence.place(this.create(hue).root, pose);
+        }
+      },
+    });
   }
 
   get count(): number {
@@ -89,19 +102,24 @@ export class Portal implements Feature {
     const hit = this.hitTest.getHit(hand);
     if (!hit) return;
     if (this.portals.length >= MAX_PORTALS) this.dispose(this.portals.shift()!);
-    const used = new Set(this.portals.map((p) => p.ref));
-    let ref = 1;
-    while (used.has(ref)) ref++;
-
-    const portal = build(ref, this.time);
+    const portal = this.create(Math.random());
     portal.root.position.copy(hit.position);
     // ローカル +Z を面の手前に向ける。壁では鉛直を保ち、中の世界が傾かないようにする。
     if (isHorizontal(hit.normal)) portal.root.quaternion.setFromUnitVectors(FORWARD, hit.normal);
     else orientOnSurface(hit.position, hit.normal, hit.position, portal.root.quaternion);
-    this.app.scene.add(portal.root);
-    this.portals.push(portal);
     hand.pulse(1, 80);
     this.onOpened?.(hit.position);
+  }
+
+  /** 空いているステンシルの番号でポータルを作り、シーンに足す。位置と向きは呼び出し側が決める。 */
+  private create(hue: number): PortalInstance {
+    const used = new Set(this.portals.map((p) => p.ref));
+    let ref = 1;
+    while (used.has(ref)) ref++;
+    const portal = build(ref, this.time, hue);
+    this.app.scene.add(portal.root);
+    this.portals.push(portal);
+    return portal;
   }
 
   private dispose(portal: PortalInstance): void {
@@ -115,8 +133,7 @@ export class Portal implements Feature {
   }
 }
 
-function build(ref: number, time: number): PortalInstance {
-  const hue = Math.random();
+function build(ref: number, time: number, hue: number): PortalInstance {
   const root = new THREE.Group();
   const opening = new THREE.Group();
   opening.position.z = SURFACE_OFFSET;
@@ -192,7 +209,7 @@ function build(ref: number, time: number): PortalInstance {
     spinners.push(spinner);
     root.add(spinner);
   }
-  return { ref, root, opening, spinners, bornAt: time };
+  return { ref, hue, root, opening, spinners, bornAt: time };
 }
 
 /** ステンシルが ref の所にだけ描く設定 */
