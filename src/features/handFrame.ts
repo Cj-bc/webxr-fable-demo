@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import type { App, Feature, FrameContext } from '../app';
 import { copyPosition, getJointPose, type HandState } from '../input';
+import { deleteBlob, getBlob, putBlob } from '../blobStore';
 import { withoutOcclusion } from './occlusion';
+import type { SavedPose } from './persistence';
 
 /** 人差し指が伸びているとみなす、まっすぐさ (付け根から先端の直線距離 / 指の長さ)。枠を作るとき / 保つとき */
 const INDEX_STRAIGHT_FORM = 0.88;
@@ -124,6 +126,23 @@ export interface Photo {
   name: string;
 }
 
+/** 空間に浮かべてある写真 */
+interface WorldPhoto {
+  /** 保存してある画像の識別子 */
+  id: string;
+  group: THREE.Group;
+  /** 撮った枠の大きさ (m)。表示の大きさは、これに group の拡大率を掛けたもの。 */
+  width: number;
+  height: number;
+}
+
+interface SavedPhoto {
+  id: string;
+  width: number;
+  height: number;
+  pose: SavedPose;
+}
+
 export interface CameraInfo {
   /** 映像を再生している要素。ページに置けば、何が映っているか確かめられる。 */
   video: HTMLVideoElement;
@@ -207,7 +226,10 @@ export class HandFrame implements Feature {
   private readonly frame = new THREE.Group();
   private readonly bars: THREE.Mesh[] = [];
   private readonly flash: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
-  private readonly worldPhotos: THREE.Group[] = [];
+  private readonly worldPhotos: WorldPhoto[] = [];
+  /** 「全部消す」の回数と、復元を始めたときのその値。復元の途中で消されたことを見分ける。 */
+  private clearGeneration = 0;
+  private restoreGeneration = 0;
 
   private readonly captureCamera = new THREE.PerspectiveCamera();
   // 仮想物体はリニアで描かれるので、暗部が潰れないよう 8 ビットより精度のある形式で受ける。
@@ -280,6 +302,20 @@ export class HandFrame implements Feature {
     // 枠を作っている間は、親指の動きがつまみと判定されても道具を発動させない。
     app.tools.addInterceptor(() => this.active);
     app.onClear(() => this.clearWorldPhotos());
+    // 位置と大きさは他の物と一緒に保存し、画像は大きいので別に (IndexedDB) 持つ。
+    app.persistence.register<SavedPhoto[]>('photos', {
+      save: () =>
+        this.worldPhotos.map(({ id, group, width, height }) => ({
+          id,
+          width,
+          height,
+          pose: app.persistence.poseOf(group),
+        })),
+      restore: (saved) => {
+        this.restoreGeneration = this.clearGeneration;
+        return this.restoreWorldPhotos(saved);
+      },
+    });
   }
 
   /** カメラの映像が取れていて、写真に現実の景色が入るか */
@@ -369,6 +405,9 @@ export class HandFrame implements Feature {
   end(): void {
     this.active = false;
     this.frame.visible = false;
+    // 次のセッションでは座標が変わるので、表示は片付ける。保存してあれば、そこから戻る。
+    for (const photo of this.worldPhotos) this.removeWorldPhoto(photo, true);
+    this.worldPhotos.length = 0;
   }
 
   update(ctx: FrameContext): void {
@@ -579,7 +618,7 @@ export class HandFrame implements Feature {
     const frameVisible = this.frame.visible;
     this.frame.visible = false;
     // 前に撮った写真は写さない。同じ場所で続けて撮ると、前の写真が景色を覆ってしまう。
-    for (const photo of this.worldPhotos) photo.visible = false;
+    for (const photo of this.worldPhotos) photo.group.visible = false;
     try {
       renderer.xr.enabled = false;
       renderer.setClearColor(0x000000, 0);
@@ -593,7 +632,7 @@ export class HandFrame implements Feature {
       renderer.setClearColor(_clearColor, previousAlpha);
       renderer.xr.enabled = previousXr;
       this.frame.visible = frameVisible;
-      for (const photo of this.worldPhotos) photo.visible = true;
+      for (const photo of this.worldPhotos) photo.group.visible = true;
     }
 
     // 読み出した画素は下の行から並んでいるので、上下を入れ替えてキャンバスに置く。
@@ -610,11 +649,16 @@ export class HandFrame implements Feature {
     }
     context.putImageData(image, 0, 0);
 
-    this.addWorldPhoto(canvas);
+    const worldPhoto = this.addWorldPhoto(canvas);
     const name = `mr-playroom-${new Date().toISOString().replace(/[:.]/g, '-')}.jpg`;
     canvas.toBlob(
       (blob) => {
         if (!blob) return;
+        if (this.worldPhotos.includes(worldPhoto)) {
+          putBlob(worldPhoto.id, blob).catch((error: unknown) => {
+            console.warn('[handFrame] 写真の画像を保存できませんでした。次回は復元されません', error);
+          });
+        }
         const photo: Photo = { url: URL.createObjectURL(blob), name };
         this.photos.push(photo);
         this.onPhoto?.(photo);
@@ -625,28 +669,36 @@ export class HandFrame implements Feature {
   }
 
   /** 撮った写真を、撮った場所に浮かべて残す。 */
-  private addWorldPhoto(canvas: HTMLCanvasElement): void {
+  private addWorldPhoto(canvas: HTMLCanvasElement): WorldPhoto {
     const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    const photo = new THREE.Group();
-    const picture = new THREE.Mesh(
-      new THREE.PlaneGeometry(this.width, this.height),
-      new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide }),
-    );
-    const mount = new THREE.Mesh(
-      new THREE.PlaneGeometry(this.width + 0.012, this.height + 0.012),
-      new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide }),
-    );
-    mount.position.z = -0.001;
-    photo.add(mount, picture);
+    const worldPhoto = this.createWorldPhoto(crypto.randomUUID(), texture, this.width, this.height);
+    const photo = worldPhoto.group;
     // 枠の位置にそのまま残すと次に撮る景色を塞ぐので、縮めて枠の下に置く。
     photo.scale.setScalar(PHOTO_SCALE);
     photo.quaternion.copy(this.quaternion);
     _up.set(0, 1, 0).applyQuaternion(this.quaternion);
     photo.position.copy(this.center).addScaledVector(_up, -(this.height * (1 + PHOTO_SCALE)) / 2 - 0.03);
+    while (this.worldPhotos.length > MAX_WORLD_PHOTOS) this.removeWorldPhoto(this.worldPhotos.shift()!);
+    return worldPhoto;
+  }
+
+  /** 写真の板を作ってシーンに足す。位置・向き・大きさは呼び出し側が決める。width と height は撮った枠の大きさ (m)。 */
+  private createWorldPhoto(id: string, texture: THREE.Texture, width: number, height: number): WorldPhoto {
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const photo = new THREE.Group();
+    const picture = new THREE.Mesh(
+      new THREE.PlaneGeometry(width, height),
+      new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide }),
+    );
+    const mount = new THREE.Mesh(
+      new THREE.PlaneGeometry(width + 0.012, height + 0.012),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide }),
+    );
+    mount.position.z = -0.001;
+    photo.add(mount, picture);
     this.app.scene.add(photo);
-    const halfWidth = this.width / 2;
-    const halfHeight = this.height / 2;
+    const halfWidth = width / 2;
+    const halfHeight = height / 2;
     this.app.holding.add({
       object: photo,
       // 枠を作っている手が、すぐ下にある写真をつまんでしまわないようにする。
@@ -658,16 +710,42 @@ export class HandFrame implements Feature {
         return Math.hypot(x, y, local.z) * photo.scale.x;
       },
     });
-    this.worldPhotos.push(photo);
-    while (this.worldPhotos.length > MAX_WORLD_PHOTOS) this.removeWorldPhoto(this.worldPhotos.shift()!);
+    const worldPhoto: WorldPhoto = { id, group: photo, width, height };
+    this.worldPhotos.push(worldPhoto);
+    return worldPhoto;
+  }
+
+  /** 保存してあった写真を、画像を読み直して作り直す。 */
+  private async restoreWorldPhotos(saved: SavedPhoto[]): Promise<void> {
+    const session = this.app.session;
+    for (const { id, width, height, pose } of saved) {
+      const blob = await getBlob(id);
+      // 撮った直後にページを閉じると、画像の保存が間に合っていないことがある。
+      if (!blob) continue;
+      const url = URL.createObjectURL(blob);
+      try {
+        const texture = await new THREE.TextureLoader().loadAsync(url);
+        // 読み込みを待つ間に、セッションが終わったり「全部消す」が押されたりしていたら、作らない。
+        if (this.app.session !== session || this.restoreGeneration !== this.clearGeneration) {
+          texture.dispose();
+          return;
+        }
+        this.app.persistence.place(this.createWorldPhoto(id, texture, width, height).group, pose);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    }
   }
 
   private clearWorldPhotos(): void {
+    this.clearGeneration++;
     for (const photo of this.worldPhotos) this.removeWorldPhoto(photo);
     this.worldPhotos.length = 0;
   }
 
-  private removeWorldPhoto(photo: THREE.Group): void {
+  /** keepImage: 保存してある画像を残す (セッションの終了で、表示だけ片付けるとき) */
+  private removeWorldPhoto({ id, group: photo }: WorldPhoto, keepImage = false): void {
+    if (!keepImage) void deleteBlob(id).catch(() => {});
     this.app.scene.remove(photo);
     this.app.holding.remove(photo);
     for (const child of photo.children) {

@@ -70,6 +70,8 @@ export class Persistence implements Feature {
   /** このセッションで基準を作り直した (復元するものがない) */
   private fresh = false;
   private creating = false;
+  /** 前回の物を戻している最中 */
+  private restoring = false;
   /** 基準のアンカー → ワールド座標 の変換と、その逆 */
   private readonly origin = new THREE.Matrix4();
   private readonly originInverse = new THREE.Matrix4();
@@ -109,6 +111,7 @@ export class Persistence implements Feature {
     this.anchor = null;
     this.fresh = false;
     this.creating = false;
+    this.restoring = false;
     this.lastJson = '';
     this.uuid = localStorage.getItem(ORIGIN_KEY);
     if (!session.restorePersistentAnchor) {
@@ -194,6 +197,7 @@ export class Persistence implements Feature {
   }
 
   private save(): void {
+    if (this.restoring) return;
     const data: Record<string, unknown> = {};
     for (const [key, participant] of this.participants) {
       try {
@@ -219,13 +223,23 @@ export class Persistence implements Feature {
     } catch {
       return;
     }
+    const session = this.session;
+    const restoring: Promise<void>[] = [];
     for (const [key, participant] of this.participants) {
       if (data[key] === undefined) continue;
       // 1 つの機能の復元に失敗しても、他の機能は復元する。
-      Promise.resolve()
-        .then(() => participant.restore(data[key]))
-        .catch((error: unknown) => console.error(`[persistence] ${key} を復元できませんでした`, error));
+      restoring.push(
+        Promise.resolve()
+          .then(() => participant.restore(data[key]))
+          .catch((error: unknown) => console.error(`[persistence] ${key} を復元できませんでした`, error)),
+      );
     }
+    // 画像の読み込みなど、復元に時間のかかる物がある。戻りきる前に保存すると、まだ戻っていない物が
+    // 保存から抜けてしまうので、全部終わるまで保存を止める。
+    this.restoring = true;
+    void Promise.all(restoring).then(() => {
+      if (this.session === session) this.restoring = false;
+    });
   }
 
   /** 「全部消す」。保存が止まっているときは、前回の内容を捨てて、いまの場所で基準を作り直す。 */
