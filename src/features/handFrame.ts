@@ -25,6 +25,11 @@ const OPPOSED_FORM = -0.5;
 const OPPOSED_HOLD = -0.2;
 /** 枠の形をこの秒数だけ保つと、枠が出る。手を動かす途中で一瞬その形になっただけでは出さない。 */
 const FORM_DELAY = 0.35;
+/**
+ * 枠を、両手の角が作る四角形より各辺この長さだけ内側に縮める (m)。指が写真に写り込まないようにする。
+ * 指の太さに加えて、カメラが目とは違う位置から手を見ているぶんのずれも見込んでいる。
+ */
+const FINGER_INSET = 0.03;
 /** 枠の一辺の長さの範囲 (m) */
 const MIN_SIDE = 0.04;
 const MAX_SIDE = 0.7;
@@ -499,8 +504,8 @@ export class HandFrame implements Feature {
     _right.crossVectors(_up, _normal);
     this.quaternion.setFromRotationMatrix(_matrix.makeBasis(_right, _up, _normal));
     _diagonal.subVectors(this.right.corner, this.left.corner);
-    this.width = THREE.MathUtils.clamp(Math.abs(_diagonal.dot(_right)), MIN_SIDE, MAX_SIDE);
-    this.height = THREE.MathUtils.clamp(Math.abs(_diagonal.dot(_up)), MIN_SIDE, MAX_SIDE);
+    this.width = THREE.MathUtils.clamp(Math.abs(_diagonal.dot(_right)) - FINGER_INSET * 2, MIN_SIDE, MAX_SIDE);
+    this.height = THREE.MathUtils.clamp(Math.abs(_diagonal.dot(_up)) - FINGER_INSET * 2, MIN_SIDE, MAX_SIDE);
   }
 
   private updateFrame(time: number): void {
