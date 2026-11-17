@@ -46,8 +46,10 @@ status.setDetail('mesh-detection', () => `${room.meshCount} 個`);
 status.setDetail('hit-test', () => (hitTest.usingFallback ? '使えないため y=0 の床で代用' : '配置・ポータルの照準'));
 status.setDetail('anchors', () => {
   const failures = placement.persistFailures > 0 ? `、保存失敗 ${placement.persistFailures}` : '';
-  return `${placement.anchoredCount} 個 (うち保存 ${placement.persistentCount}${failures}) / ${app.persistence.status}`;
+  return `${placement.anchoredCount} 個 (うち保存 ${placement.persistentCount}${failures})`;
 });
+// 失敗の理由が長くなるので、行ではなく、パネルの幅いっぱいの注記に出す。
+status.setNote(() => app.persistence.status);
 status.setDetail('depth-sensing', () =>
   !occlusion.active
     ? '深度データなし'

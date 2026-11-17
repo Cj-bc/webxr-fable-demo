@@ -8,6 +8,8 @@ const PIXELS_PER_METER = 1250;
 const ROW_HEIGHT = 58;
 const HEADER_HEIGHT = 84;
 const FOOTER_HEIGHT = 56;
+/** 末尾の注記 (空間の保存の状況など、長くなりうる文) の高さ。パネルの幅いっぱいに 2 行まで出す。 */
+const NOTE_HEIGHT = 60;
 const REDRAW_INTERVAL = 0.5;
 /** パネルを出す位置の、頭からの距離 (m) */
 const DISTANCE = 1.1;
@@ -26,6 +28,7 @@ export class StatusPanel implements Feature {
   /** 機能 id → 現在の状況を 1 行で返す関数 */
   private readonly details = new Map<string, () => string>();
   private footer: () => string = () => '';
+  private note: () => string = () => '';
   private enabledFeatures: readonly string[] | undefined;
   private needsPlacement = true;
   private lastDraw = -Infinity;
@@ -33,7 +36,8 @@ export class StatusPanel implements Feature {
   private fps = 0;
 
   constructor(app: App) {
-    const height = (HEADER_HEIGHT + ALL_FEATURES.length * ROW_HEIGHT + FOOTER_HEIGHT) / PIXELS_PER_METER;
+    const height =
+      (HEADER_HEIGHT + ALL_FEATURES.length * ROW_HEIGHT + FOOTER_HEIGHT + NOTE_HEIGHT) / PIXELS_PER_METER;
     this.panel = new CanvasPanel(WIDTH, height, PIXELS_PER_METER);
     this.panel.mesh.visible = false;
     app.scene.add(this.panel.mesh);
@@ -54,6 +58,10 @@ export class StatusPanel implements Feature {
 
   setFooter(footer: () => string): void {
     this.footer = footer;
+  }
+
+  setNote(note: () => string): void {
+    this.note = note;
   }
 
   start(session: XRSession): void {
@@ -118,13 +126,32 @@ export class StatusPanel implements Feature {
       g.font = '18px ui-monospace, monospace';
       g.fillText(feature.id, 120, y + 14);
       g.fillStyle = '#e8ecf4';
-      g.font = '22px system-ui, sans-serif';
-      g.fillText(this.details.get(feature.id)?.() ?? '', 380, y, width - 380 - 24);
+      drawWrapped(g, this.details.get(feature.id)?.() ?? '', 380, y, width - 380 - 24);
     });
 
     g.fillStyle = '#a9b4c8';
     g.font = '22px system-ui, sans-serif';
-    g.fillText(this.footer(), 24, height - FOOTER_HEIGHT / 2, width - 48);
+    g.fillText(this.footer(), 24, height - NOTE_HEIGHT - FOOTER_HEIGHT / 2, width - 48);
+    g.fillStyle = '#e8ecf4';
+    drawWrapped(g, this.note(), 24, height - NOTE_HEIGHT / 2 - 6, width - 48);
     this.panel.markDirty();
   }
+}
+
+/**
+ * 1 行に収まらない文は、文字を小さくして 2 行に折り返す。それでも収まらない分だけ横に詰める。
+ * 失敗の理由などの長い文が、潰れて読めなくならないようにする。
+ */
+function drawWrapped(g: CanvasRenderingContext2D, text: string, x: number, y: number, maxWidth: number): void {
+  g.font = '22px system-ui, sans-serif';
+  if (g.measureText(text).width <= maxWidth) {
+    g.fillText(text, x, y);
+    return;
+  }
+  g.font = '18px system-ui, sans-serif';
+  // 日本語は単語の区切りがないので、1 文字ずつ足して収まる所で切る。
+  let split = 1;
+  while (split < text.length && g.measureText(text.slice(0, split + 1)).width <= maxWidth) split++;
+  g.fillText(text.slice(0, split), x, y - 11);
+  g.fillText(text.slice(split), x, y + 11, maxWidth);
 }
