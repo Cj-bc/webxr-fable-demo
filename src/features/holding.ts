@@ -43,7 +43,7 @@ const _delta = new THREE.Quaternion();
 
 /**
  * 写真や線のような、物理を持たない物を手で持って動かす。離すと、その場に浮いたまま残る。
- * - 物の近くでつまむ / トリガー / グリップ: 持つ
+ * - 物の近くでつまむ・握る / トリガー / グリップ: 持つ
  * - 持っている物をもう一方の手でも持つ: 手の間隔で拡大縮小、手の向きで回転
  *
  * 物理で動くおもちゃは、投げたり当たり判定を作り直したりと扱いが違うので、Toys が自前で持つ。
@@ -113,7 +113,7 @@ export class Holding implements Feature {
 
   private tryHold(hand: HandState, button: HoldButton): boolean {
     if (!hand.tracked || this.held.has(hand)) return false;
-    // 線の近くでも描き足せるよう、つまみを道具に譲る。グリップでは持てる。
+    // 線の近くでも描き足せるよう、つまみを道具に譲る。握る / グリップでは持てる。
     if (button === 'select' && this.app.tools.active?.overridesHold) return false;
     let nearest: Holdable | null = null;
     let nearestDistance = HOLD_MARGIN;

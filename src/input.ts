@@ -7,6 +7,19 @@ type Listener = (hand: HandState) => void;
 
 /** 速度の計算に使う、直近の位置の記録期間 (秒) */
 const VELOCITY_WINDOW = 0.1;
+/**
+ * 素手で「握っている」とみなす、指の伸び具合 (付け根から先端の直線距離 / 指の長さ。まっすぐなら 1)。
+ * 人差し指から小指までの 4 本すべてが START を下回ったら握り始め、どれかが END を超えたら離したとみなす。
+ * つまむときは人差し指があまり曲がらないので、4 本とも見ることで、つまみと握りを区別する。
+ */
+const GRASP_START = 0.62;
+const GRASP_END = 0.78;
+const GRASP_FINGERS = ['index-finger', 'middle-finger', 'ring-finger', 'pinky-finger'] as const;
+
+const _a = new THREE.Vector3();
+const _b = new THREE.Vector3();
+const _c = new THREE.Vector3();
+const _d = new THREE.Vector3();
 
 /**
  * 片手ぶんの入力状態。素手 (ハンドトラッキング) とコントローラーの違いを吸収する。
@@ -20,8 +33,10 @@ export class HandState {
   isHand = false;
   /** 素手: つまんでいる / コントローラー: トリガーを引いている */
   selecting = false;
-  /** コントローラーのグリップボタンを握っている (素手では発生しない) */
+  /** 素手: 手全体で握っている / コントローラー: グリップボタンを握っている */
   squeezing = false;
+  /** 素手のとき、人差し指から小指のうち、いちばん伸びている指の伸び具合 (まっすぐなら 1) */
+  fingerExtension = 1;
 
   /** 指し示すレイ (targetRaySpace) */
   readonly rayOrigin = new THREE.Vector3();
@@ -75,6 +90,7 @@ export class HandState {
       copyQuaternion(this.grabQuaternion, wrist.transform.orientation);
       // 手の関節の空間は、-Y が手のひらから外へ出る向きと決められている。
       this.palmNormal.set(0, -1, 0).applyQuaternion(this.grabQuaternion);
+      this.updateFingerExtension(frame, source.hand, refSpace);
     } else {
       const gripPose = source.gripSpace ? frame.getPose(source.gripSpace, refSpace) : null;
       const transform = (gripPose ?? rayPose).transform;
@@ -94,8 +110,29 @@ export class HandState {
     this.tracked = false;
     this.selecting = false;
     this.squeezing = false;
+    this.fingerExtension = 1;
     this.history.length = 0;
     this.velocity.set(0, 0, 0);
+  }
+
+  /** 関節が 1 つでも取れなければ、前の値を保つ。 */
+  private updateFingerExtension(frame: XRFrame, hand: XRHand, refSpace: XRReferenceSpace): void {
+    let extension = 0;
+    for (const finger of GRASP_FINGERS) {
+      const proximal = getJointPose(frame, hand, `${finger}-phalanx-proximal`, refSpace);
+      const intermediate = getJointPose(frame, hand, `${finger}-phalanx-intermediate`, refSpace);
+      const distal = getJointPose(frame, hand, `${finger}-phalanx-distal`, refSpace);
+      const tip = getJointPose(frame, hand, `${finger}-tip`, refSpace);
+      if (!proximal || !intermediate || !distal || !tip) return;
+      const base = copyPosition(_a, proximal.transform.position);
+      const middle = copyPosition(_b, intermediate.transform.position);
+      const far = copyPosition(_c, distal.transform.position);
+      const end = copyPosition(_d, tip.transform.position);
+      const length = base.distanceTo(middle) + middle.distanceTo(far) + far.distanceTo(end);
+      if (length < 1e-4) return;
+      extension = Math.max(extension, base.distanceTo(end) / length);
+    }
+    this.fingerExtension = extension;
   }
 
   private updateVelocity(time: number): void {
@@ -173,6 +210,16 @@ export class Input implements Feature {
         hand.source = current;
       }
       hand.updatePose(ctx);
+      // 素手には squeeze のイベントがないので、手全体で握る動きを指の曲がり具合から読んで、同じ通知にする。
+      // 手を見失っている間は判定しない (握ったまま視界の外へ出ても、持っている物を落とさない)。
+      if (hand.isHand && hand.tracked) {
+        if (hand.squeezing) {
+          if (hand.fingerExtension > GRASP_END) this.setSqueezing(hand, false);
+        } else if (hand.fingerExtension < GRASP_START && !hand.selecting) {
+          // つまんでいる手は、握りとしては扱わない。1 つの動きで 2 つの操作が起きないようにする。
+          this.setSqueezing(hand, true);
+        }
+      }
     }
   }
 

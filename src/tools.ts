@@ -31,6 +31,8 @@ export class Tools {
 
   constructor(input: Input) {
     input.on('selectstart', (hand) => {
+      // 手を握ると、親指が人差し指に触れてつまみと判定されることがある。握っている手のつまみは無視する。
+      if (hand.isHand && hand.squeezing) return;
       if (this.interceptors.some((intercept) => intercept(hand))) return;
       const tool = this.active;
       if (!tool) return;
