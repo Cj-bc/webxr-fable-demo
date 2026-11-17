@@ -25,11 +25,14 @@ export async function setupEnterButton(onEnter: () => void): Promise<void> {
     setMessage('このブラウザは WebXR に対応していません。Meta Quest のブラウザで、HTTPS で開いてください。');
     return;
   }
+  // 確認に時間がかかる環境があるので、その間も何が起きているか分かるようにする。
+  setMessage('MR に対応しているか確認しています…');
   const supported = await navigator.xr.isSessionSupported('immersive-ar').catch(() => false);
   if (!supported) {
     setMessage('このデバイスは immersive-ar (パススルー MR) セッションに対応していません。');
     return;
   }
+  setMessage('');
   enterButton.disabled = false;
 }
 
