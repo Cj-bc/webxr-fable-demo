@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { App, Feature } from '../app';
 import type { HandState } from '../input';
 
-/** 手で持って動かせる物。object はシーンの直下に置かれていること (位置と向きをワールド座標で書き換える)。 */
+/** 手で持って動かせる物。object はシーンの直下に置かれていること (位置・向き・大きさをワールド座標で書き換える)。 */
 export interface Holdable {
   object: THREE.Object3D;
   /** 手の位置 (ワールド座標) から、物の表面までの距離 (m) */
@@ -15,27 +15,43 @@ export interface Holdable {
 
 type HoldButton = 'select' | 'squeeze';
 
+interface Part {
+  object: THREE.Object3D;
+  /** 片手: 手から見た位置と向き / 両手: 両手の中点から見た位置と、ワールド座標での向き */
+  position: THREE.Vector3;
+  quaternion: THREE.Quaternion;
+  scale: number;
+}
+
 interface Hold {
-  button: HoldButton;
-  /** 持ち始めたときの、手から見た物の位置と向き */
-  parts: { object: THREE.Object3D; position: THREE.Vector3; quaternion: THREE.Quaternion }[];
+  /** 持っている手。1 つか 2 つ */
+  hands: { hand: HandState; button: HoldButton }[];
+  parts: Part[];
+  /** 両手で持ち始めた瞬間の、両手を結ぶ線の向きと長さ */
+  twoHand: { direction: THREE.Vector3; distance: number } | null;
 }
 
 /** 物の表面からこの距離までなら、持てる (m) */
 const HOLD_MARGIN = 0.04;
+/** 両手で変えられる拡大率の範囲 */
+const MIN_SCALE = 0.25;
+const MAX_SCALE = 6;
 
-const _inverse = new THREE.Quaternion();
+const _direction = new THREE.Vector3();
+const _middle = new THREE.Vector3();
+const _delta = new THREE.Quaternion();
 
 /**
  * 写真や線のような、物理を持たない物を手で持って動かす。離すと、その場に浮いたまま残る。
  * - 物の近くでつまむ / トリガー / グリップ: 持つ
- * - すでに持たれている物を別の手で持つと、その手に持ち替える
+ * - 持っている物をもう一方の手でも持つ: 手の間隔で拡大縮小、手の向きで回転
  *
- * 物理で動くおもちゃは、投げる・両手で拡大するなど扱いが違うので、Toys が自前で持つ。
+ * 物理で動くおもちゃは、投げたり当たり判定を作り直したりと扱いが違うので、Toys が自前で持つ。
  */
 export class Holding implements Feature {
   readonly name = 'holding';
   private readonly holdables: Holdable[] = [];
+  /** 両手で同じ物を持っているときは、両方の手が同じ Hold を指す。 */
   private readonly held = new Map<HandState, Hold>();
 
   constructor(private readonly app: App) {
@@ -65,11 +81,32 @@ export class Holding implements Feature {
   }
 
   update(): void {
-    for (const [hand, hold] of this.held) {
-      if (!hand.tracked) continue;
-      for (const part of hold.parts) {
-        part.object.quaternion.copy(hand.grabQuaternion).multiply(part.quaternion);
-        part.object.position.copy(part.position).applyQuaternion(hand.grabQuaternion).add(hand.grabPosition);
+    for (const hold of new Set(this.held.values())) {
+      const [first, second] = hold.hands;
+      if (second && hold.twoHand) {
+        if (!first.hand.tracked || !second.hand.tracked) continue;
+        const start = hold.twoHand;
+        const direction = _direction.copy(second.hand.grabPosition).sub(first.hand.grabPosition);
+        const distance = Math.max(direction.length(), 0.02);
+        direction.normalize();
+        // 一緒に持っている物の大きさが違っても形が崩れないよう、倍率は全体で 1 つにする。
+        const base = hold.parts[0].scale;
+        const ratio = THREE.MathUtils.clamp(distance / start.distance, MIN_SCALE / base, MAX_SCALE / base);
+        // 両手を結ぶ線の向きの変化を、そのまま物の回転にする。
+        _delta.setFromUnitVectors(start.direction, direction);
+        _middle.addVectors(first.hand.grabPosition, second.hand.grabPosition).multiplyScalar(0.5);
+        for (const part of hold.parts) {
+          part.object.quaternion.copy(_delta).multiply(part.quaternion);
+          part.object.position.copy(part.position).applyQuaternion(_delta).multiplyScalar(ratio).add(_middle);
+          part.object.scale.setScalar(part.scale * ratio);
+        }
+      } else {
+        const hand = first.hand;
+        if (!hand.tracked) continue;
+        for (const part of hold.parts) {
+          part.object.quaternion.copy(hand.grabQuaternion).multiply(part.quaternion);
+          part.object.position.copy(part.position).applyQuaternion(hand.grabQuaternion).add(hand.grabPosition);
+        }
       }
     }
   }
@@ -90,28 +127,66 @@ export class Holding implements Feature {
     }
     if (!nearest) return false;
 
-    const objects = nearest.group?.() ?? [nearest.object];
-    // もう一方の手が同じ物を持っていたら、そちらからは外す。
-    for (const [other, hold] of this.held) {
-      hold.parts = hold.parts.filter((part) => !objects.includes(part.object));
-      if (hold.parts.length === 0) this.held.delete(other);
+    const other = this.held.get(this.app.input.other(hand));
+    let hold: Hold;
+    if (other?.parts.some((part) => part.object === nearest.object)) {
+      // もう一方の手が持っている物なら、両手持ちにする。
+      hold = other;
+      hold.hands.push({ hand, button });
+    } else {
+      // もう一方の手が持っている物は、そちらに任せる。
+      const objects = (nearest.group?.() ?? [nearest.object]).filter(
+        (object) => !other?.parts.some((part) => part.object === object),
+      );
+      hold = {
+        hands: [{ hand, button }],
+        parts: objects.map((object) => ({
+          object,
+          position: new THREE.Vector3(),
+          quaternion: new THREE.Quaternion(),
+          scale: 1,
+        })),
+        twoHand: null,
+      };
     }
-    _inverse.copy(hand.grabQuaternion).invert();
-    this.held.set(hand, {
-      button,
-      parts: objects.map((object) => ({
-        object,
-        position: object.position.clone().sub(hand.grabPosition).applyQuaternion(_inverse),
-        quaternion: _inverse.clone().multiply(object.quaternion),
-      })),
-    });
+    this.held.set(hand, hold);
+    this.beginHold(hold);
     hand.pulse(0.5, 25);
     return true;
   }
 
   private release(hand: HandState, button: HoldButton): void {
-    if (this.held.get(hand)?.button !== button) return;
+    const hold = this.held.get(hand);
+    const index = hold?.hands.findIndex((holder) => holder.hand === hand && holder.button === button) ?? -1;
+    if (!hold || index < 0) return;
     this.held.delete(hand);
+    hold.hands.splice(index, 1);
+    if (hold.hands.length > 0) this.beginHold(hold);
     hand.pulse(0.25, 20);
+  }
+
+  /** 持ち手の数が変わったときに、その時点の位置関係を基準として覚え直す。 */
+  private beginHold(hold: Hold): void {
+    const [first, second] = hold.hands;
+    if (second) {
+      const direction = _direction.copy(second.hand.grabPosition).sub(first.hand.grabPosition);
+      const distance = Math.max(direction.length(), 0.02);
+      hold.twoHand = { direction: direction.clone().normalize(), distance };
+      _middle.addVectors(first.hand.grabPosition, second.hand.grabPosition).multiplyScalar(0.5);
+      for (const part of hold.parts) {
+        part.position.copy(part.object.position).sub(_middle);
+        part.quaternion.copy(part.object.quaternion);
+        part.scale = part.object.scale.x;
+      }
+    } else {
+      hold.twoHand = null;
+      const hand = first.hand;
+      _delta.copy(hand.grabQuaternion).invert();
+      for (const part of hold.parts) {
+        part.position.copy(part.object.position).sub(hand.grabPosition).applyQuaternion(_delta);
+        part.quaternion.copy(_delta).multiply(part.object.quaternion);
+        part.scale = part.object.scale.x;
+      }
+    }
   }
 }

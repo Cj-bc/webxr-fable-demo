@@ -106,14 +106,15 @@ export class Drawing implements Feature {
     stroke.complete = true;
     this.app.holding.add({
       object: mesh,
-      // 持って動かしたあとは、点列 (描いたときの座標) とワールド座標がずれるので、線の座標に直して測る。
+      // 持って動かしたり拡大したりしたあとは、点列 (描いたときの座標) とワールド座標がずれるので、
+      // 線の座標に直して測り、長さをワールドの縮尺に戻す。
       distanceTo: (point) => {
         const local = mesh.worldToLocal(_local.copy(point));
         let nearest = Infinity;
         for (let i = 1; i < points.length; i++) {
           nearest = Math.min(nearest, distanceToSegment(local, points[i - 1], points[i]));
         }
-        return nearest - RADIUS;
+        return (nearest - RADIUS) * mesh.scale.x;
       },
       group: () => this.linked(stroke).map((linked) => linked.mesh),
     });
