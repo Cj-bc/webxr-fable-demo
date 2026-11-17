@@ -1,0 +1,43 @@
+{
+  "cli_version": "0.13.2",
+  "checkpoint_id": "01M7KM2HFHNQ2KF9DJSGKXMQ2F",
+  "strategy": "manual-commit",
+  "branch": "master",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/app.ts",
+    "src/features/toys.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 8,
+    "cache_creation_tokens": 10902,
+    "cache_read_tokens": 483861,
+    "output_tokens": 10023,
+    "api_call_count": 4
+  },
+  "redaction": {
+    "replacements": 137,
+    "layers": {
+      "betterleaks": 0,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "custom": 137,
+      "entropy": 0,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    },
+    "custom_rules_active": 2
+  }
+}
