@@ -3,6 +3,7 @@ import { Cursors } from './features/cursors';
 import { Drawing } from './features/drawing';
 import { HitTest } from './features/hitTest';
 import { Lighting } from './features/lighting';
+import { Occlusion } from './features/occlusion';
 import { Placement } from './features/placement';
 import { Portal } from './features/portal';
 import { Room } from './features/room';
@@ -13,6 +14,7 @@ const app = new App();
 await app.physics.init();
 
 app.add(new Lighting(app));
+app.add(new Occlusion(app));
 app.add(new Cursors(app));
 app.add(new Room(app));
 app.add(new Toys(app));
