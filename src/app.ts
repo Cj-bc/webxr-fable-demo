@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Menu } from './features/menu';
 import { Input } from './input';
+import { Physics } from './physics';
 import { Tools } from './tools';
 import { OPTIONAL_FEATURES, REQUIRED_FEATURES } from './xrFeatures';
 
@@ -34,6 +35,7 @@ export class App {
   readonly input = new Input();
   readonly tools = new Tools(this.input);
   readonly menu = new Menu(this);
+  readonly physics = new Physics();
   session: XRSession | null = null;
   onSessionStart: ((session: XRSession) => void) | null = null;
   onSessionEnd: (() => void) | null = null;
