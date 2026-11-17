@@ -210,6 +210,11 @@ export class Placement implements Feature {
   }
 }
 
+/** 配置した物のために保存してある、永続アンカーの識別子 */
+export function savedAnchorIds(): string[] {
+  return loadSaved().map((saved) => saved.uuid);
+}
+
 function loadSaved(): Saved[] {
   try {
     const parsed: unknown = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]');

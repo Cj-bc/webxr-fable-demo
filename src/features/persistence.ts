@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { App, Feature, FrameContext } from '../app';
 import { clearBlobs } from '../blobStore';
 import { copyPosition, copyQuaternion } from '../input';
+import { savedAnchorIds } from './placement';
 
 /** 基準のアンカーから見た、物の位置 (x, y, z)・向き (x, y, z, w)・拡大率 */
 export type SavedPose = number[];
@@ -70,6 +71,9 @@ export class Persistence implements Feature {
   /** このセッションで基準を作り直した (復元するものがない) */
   private fresh = false;
   private creating = false;
+  /** 作ったが、まだ永続化していない基準のアンカー。追跡が始まるのを待ってから永続化する。 */
+  private pendingAnchor: XRAnchor | null = null;
+  private persisting = false;
   /** 前回の物を戻している最中 */
   private restoring = false;
   /** 基準のアンカー → ワールド座標 の変換と、その逆 */
@@ -86,14 +90,18 @@ export class Persistence implements Feature {
 
   /** 状態パネルに出す 1 行 */
   get status(): string {
-    return this.error ? `${STATUS[this.state]} (${this.error})` : STATUS[this.state];
+    if (!this.error) return STATUS[this.state];
+    // 失敗の理由が個数の上限かどうかを見分けられるよう、このサイトが持っている永続アンカーの数も出す。
+    const count = this.session?.persistentAnchors?.length;
+    return `${STATUS[this.state]} (${this.error}${count === undefined ? '' : ` / 永続アンカー ${count} 個`})`;
   }
 
   /** 失敗の理由を、状態パネルに出せるよう覚えておく。Quest ではコンソールを見にくいため。 */
-  private fail(state: State, message: string, error?: unknown): void {
+  private fail(state: State, step: string, error?: unknown): void {
     this.state = state;
-    this.error = error instanceof Error ? `${error.name}: ${error.message}` : error ? String(error) : message;
-    console.warn(`[persistence] ${message}`, error);
+    const reason = error instanceof Error ? `${error.name}: ${error.message}` : error ? String(error) : '';
+    this.error = reason ? `${step}: ${reason}` : step;
+    console.warn(`[persistence] ${step}`, error);
   }
 
   register<T>(key: string, participant: Persistent<T>): void {
@@ -120,10 +128,13 @@ export class Persistence implements Feature {
     this.anchor = null;
     this.fresh = false;
     this.creating = false;
+    this.pendingAnchor = null;
+    this.persisting = false;
     this.restoring = false;
     this.lastJson = '';
     this.error = '';
     this.uuid = localStorage.getItem(ORIGIN_KEY);
+    this.deleteOrphans(session);
     if (!session.restorePersistentAnchor) {
       this.fail('unsupported', 'restorePersistentAnchor がありません');
       return;
@@ -139,7 +150,7 @@ export class Persistence implements Feature {
       },
       (error: unknown) => {
         if (this.session !== session || this.state !== 'locating') return;
-        this.fail('lost', '基準のアンカーを復元できませんでした', error);
+        this.fail('lost', '復元', error);
       },
     );
   }
@@ -151,8 +162,26 @@ export class Persistence implements Feature {
     this.anchor = null;
   }
 
+  /**
+   * このサイトの永続アンカーのうち、どこからも使われていないものを消す。
+   * 永続アンカーには個数の上限があり、保存した識別子を失ったもの (サイトのデータを消した、
+   * 永続化の途中でセッションが終わったなど) が残っていると、新しく作れなくなるため。
+   */
+  private deleteOrphans(session: XRSession): void {
+    const known = new Set([...savedAnchorIds(), ...(this.uuid ? [this.uuid] : [])]);
+    for (const uuid of session.persistentAnchors ?? []) {
+      if (known.has(uuid)) continue;
+      session.deletePersistentAnchor?.(uuid).catch((error: unknown) => {
+        console.warn(`[persistence] 使われていない永続アンカー ${uuid} を削除できませんでした`, error);
+      });
+    }
+  }
+
   update(ctx: FrameContext): void {
     if (this.state === 'creating' && !this.creating) this.createOrigin(ctx);
+    if (this.state === 'creating' && this.pendingAnchor && !this.persisting) {
+      if (ctx.frame.trackedAnchors?.has(this.pendingAnchor)) this.persistOrigin(ctx.session, this.pendingAnchor);
+    }
     const anchor = this.anchor;
     if (!anchor || (this.state !== 'locating' && this.state !== 'ready')) return;
     const pose = ctx.frame.trackedAnchors?.has(anchor) ? ctx.frame.getPose(anchor.anchorSpace, ctx.refSpace) : null;
@@ -173,7 +202,7 @@ export class Persistence implements Feature {
     }
   }
 
-  /** 頭の真下の床に、基準のアンカーを作って永続化する。 */
+  /** 頭の真下の床に、基準のアンカーを作る。永続化は、追跡が始まってから persistOrigin() で行う。 */
   private createOrigin(ctx: FrameContext): void {
     const session = ctx.session;
     this.creating = true;
@@ -183,29 +212,49 @@ export class Persistence implements Feature {
       this.fail('unsupported', 'createAnchor がありません');
       return;
     }
-    created
-      .then(async (anchor) => {
-        const uuid = await anchor.requestPersistentHandle?.();
-        if (this.session !== session || this.state !== 'creating' || !uuid) {
-          if (uuid) await session.deletePersistentAnchor?.(uuid);
+    created.then(
+      (anchor) => {
+        if (this.session !== session || this.state !== 'creating') {
           anchor.delete();
-          if (this.session === session && this.state === 'creating') {
-            this.fail('unsupported', 'requestPersistentHandle がありません');
-          }
+          return;
+        }
+        this.pendingAnchor = anchor;
+      },
+      (error: unknown) => {
+        if (this.session === session && this.state === 'creating') this.fail('failed', '作成', error);
+      },
+    );
+  }
+
+  /**
+   * 基準のアンカーを永続化する。作った直後のアンカーは、まだシステムが場所を把握しきれておらず、
+   * 永続化に失敗することがあるので、追跡が始まってから呼ぶ。
+   */
+  private persistOrigin(session: XRSession, anchor: XRAnchor): void {
+    if (!anchor.requestPersistentHandle) {
+      this.fail('unsupported', 'requestPersistentHandle がありません');
+      return;
+    }
+    this.persisting = true;
+    anchor.requestPersistentHandle().then(
+      (uuid) => {
+        if (this.session !== session || this.state !== 'creating') {
+          session.deletePersistentAnchor?.(uuid).catch(() => {});
+          anchor.delete();
           return;
         }
         localStorage.setItem(ORIGIN_KEY, uuid);
         this.uuid = uuid;
         this.anchor = anchor;
+        this.pendingAnchor = null;
         this.fresh = true;
         this.state = 'locating';
-      })
-      .catch((error: unknown) => {
+      },
+      (error: unknown) => {
         // Quest には永続アンカーの個数上限がある。配置した物が上限まで使っていると、ここで失敗する。
-        if (this.session === session && this.state === 'creating') {
-          this.fail('failed', '基準のアンカーを作れませんでした', error);
-        }
-      });
+        if (this.session === session && this.state === 'creating') this.fail('failed', '永続化', error);
+      },
+    );
   }
 
   private save(): void {
@@ -263,10 +312,12 @@ export class Persistence implements Feature {
         console.warn('[persistence] 基準のアンカーを削除できませんでした', error);
       });
     }
-    try {
-      this.anchor?.delete();
-    } catch {
-      // すでに無効になっている
+    for (const anchor of [this.anchor, this.pendingAnchor]) {
+      try {
+        anchor?.delete();
+      } catch {
+        // すでに無効になっている
+      }
     }
     localStorage.removeItem(ORIGIN_KEY);
     localStorage.removeItem(STATE_KEY);
@@ -274,7 +325,11 @@ export class Persistence implements Feature {
     void clearBlobs().catch(() => {});
     this.uuid = null;
     this.anchor = null;
+    this.pendingAnchor = null;
     this.creating = false;
+    this.persisting = false;
+    this.error = '';
+    // 配置した物のアンカーも同時に消えるので、上限で失敗していた場合も、ここで作り直せる。
     this.state = 'creating';
   }
 }
