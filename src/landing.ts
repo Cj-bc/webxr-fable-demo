@@ -5,6 +5,8 @@ const enterButton = document.querySelector<HTMLButtonElement>('#enter')!;
 const message = document.querySelector<HTMLParagraphElement>('#message')!;
 const tableBody = document.querySelector<HTMLTableSectionElement>('#support tbody')!;
 const statusCells = new Map<string, HTMLTableCellElement>();
+/** 前回選んだカメラの deviceId を覚えておく localStorage のキー */
+const CAMERA_KEY = 'mr-playroom/camera';
 
 for (const feature of ALL_FEATURES) {
   const row = tableBody.insertRow();
@@ -53,6 +55,8 @@ export function setupCameraButton(onRequest: (deviceId?: string) => Promise<Came
     select.disabled = true;
     status.textContent = 'カメラの映像を待っています…';
     onRequest(deviceId)
+      // 覚えていたカメラが無くなっていた場合は、おまかせで選び直す。
+      .catch((error: unknown) => (deviceId ? onRequest() : Promise.reject(error)))
       .then(
         (info) => {
           if (!info) {
@@ -75,8 +79,13 @@ export function setupCameraButton(onRequest: (deviceId?: string) => Promise<Came
       )
       .finally(() => (select.disabled = false));
   };
-  button.addEventListener('click', () => request());
-  select.addEventListener('change', () => request(select.value));
+  // Quest のブラウザは、既定ではアバターを映す仮想カメラを選ぶ。名前からは見分けられないので、
+  // 一度選んでもらったカメラを覚えておき、次回からはそれを使う。
+  button.addEventListener('click', () => request(localStorage.getItem(CAMERA_KEY) ?? undefined));
+  select.addEventListener('change', () => {
+    localStorage.setItem(CAMERA_KEY, select.value);
+    request(select.value);
+  });
 }
 
 /** 撮った写真を一覧に足す。押すと保存できる。 */
