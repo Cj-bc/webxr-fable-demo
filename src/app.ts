@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { Input } from './input';
 import { OPTIONAL_FEATURES, REQUIRED_FEATURES } from './xrFeatures';
 
 /** 1 フレームぶんの情報。各機能の update に渡す。 */
@@ -28,6 +29,7 @@ export class App {
   readonly renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, stencil: true });
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 100);
+  readonly input = new Input();
   session: XRSession | null = null;
   onSessionStart: ((session: XRSession) => void) | null = null;
   onSessionEnd: (() => void) | null = null;
@@ -44,6 +46,7 @@ export class App {
     this.renderer.xr.enabled = true;
     this.renderer.xr.setReferenceSpaceType('local-floor');
     document.body.appendChild(this.renderer.domElement);
+    this.add(this.input);
     window.addEventListener('resize', () => {
       if (this.renderer.xr.isPresenting) return;
       this.camera.aspect = window.innerWidth / window.innerHeight;
