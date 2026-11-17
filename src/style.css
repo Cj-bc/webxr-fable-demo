@@ -1,0 +1,89 @@
+:root {
+  color-scheme: dark;
+  font-family: system-ui, 'Noto Sans JP', sans-serif;
+}
+
+body {
+  margin: 0;
+  background: #10141c;
+  color: #e8ecf4;
+}
+
+canvas {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+}
+
+#landing {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 32px 16px;
+}
+
+h1 {
+  margin: 0 0 8px;
+  font-size: 28px;
+}
+
+.lead {
+  margin: 0 0 24px;
+  color: #a9b4c8;
+}
+
+#enter {
+  padding: 14px 28px;
+  border: 0;
+  border-radius: 10px;
+  background: #4f8cff;
+  color: #fff;
+  font-size: 18px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#enter:disabled {
+  background: #3a4254;
+  color: #8a94a8;
+  cursor: not-allowed;
+}
+
+#message {
+  min-height: 1.5em;
+  color: #ffb86b;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+th,
+td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #2a3142;
+  text-align: left;
+}
+
+th {
+  color: #a9b4c8;
+  font-weight: 500;
+}
+
+td code {
+  color: #8fb4ff;
+}
+
+.ok {
+  color: #6fe09a;
+}
+
+.ng {
+  color: #ff7b7b;
+}
+
+.note {
+  color: #8a94a8;
+  font-size: 13px;
+}
