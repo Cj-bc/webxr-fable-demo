@@ -42,6 +42,7 @@ export class App {
 
   private readonly features: Feature[] = [];
   private readonly failed = new Set<Feature>();
+  private readonly clearHandlers: (() => void)[] = [];
   private readonly headPosition = new THREE.Vector3();
   private readonly headQuaternion = new THREE.Quaternion();
   private lastTime = 0;
@@ -65,6 +66,15 @@ export class App {
   add<T extends Feature>(feature: T): T {
     this.features.push(feature);
     return feature;
+  }
+
+  /** メニューの「全部消す」で呼ばれる処理を登録する。 */
+  onClear(handler: () => void): void {
+    this.clearHandlers.push(handler);
+  }
+
+  clearAll(): void {
+    for (const handler of this.clearHandlers) handler();
   }
 
   async enterXR(): Promise<void> {
