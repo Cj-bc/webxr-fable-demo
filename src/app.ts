@@ -1,5 +1,7 @@
 import * as THREE from 'three';
+import { Menu } from './features/menu';
 import { Input } from './input';
+import { Tools } from './tools';
 import { OPTIONAL_FEATURES, REQUIRED_FEATURES } from './xrFeatures';
 
 /** 1 フレームぶんの情報。各機能の update に渡す。 */
@@ -30,6 +32,8 @@ export class App {
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 100);
   readonly input = new Input();
+  readonly tools = new Tools(this.input);
+  readonly menu = new Menu(this);
   session: XRSession | null = null;
   onSessionStart: ((session: XRSession) => void) | null = null;
   onSessionEnd: (() => void) | null = null;
@@ -47,6 +51,7 @@ export class App {
     this.renderer.xr.setReferenceSpaceType('local-floor');
     document.body.appendChild(this.renderer.domElement);
     this.add(this.input);
+    this.add(this.menu);
     window.addEventListener('resize', () => {
       if (this.renderer.xr.isPresenting) return;
       this.camera.aspect = window.innerWidth / window.innerHeight;
