@@ -4,6 +4,7 @@ import { Drawing } from './features/drawing';
 import { HitTest } from './features/hitTest';
 import { Lighting } from './features/lighting';
 import { Placement } from './features/placement';
+import { Portal } from './features/portal';
 import { Room } from './features/room';
 import { Toys } from './features/toys';
 import { setMessage, setupEnterButton, showEnabledFeatures } from './landing';
@@ -18,6 +19,7 @@ app.add(new Toys(app));
 const hitTest = app.add(new HitTest(app));
 app.add(new Placement(app, hitTest));
 app.add(new Drawing(app));
+app.add(new Portal(app, hitTest));
 app.menu.addAction('全部消す', () => app.clearAll());
 // 物理は最後に進める。各機能がこのフレームの入力を物体に反映してから計算するため。
 app.add(app.physics);
