@@ -77,6 +77,8 @@ export class Persistence implements Feature {
   private readonly originInverse = new THREE.Matrix4();
   private lastSave = 0;
   private lastJson = '';
+  /** 直近の失敗の理由 */
+  private error = '';
 
   constructor(app: App) {
     app.onClear(() => this.handleClear());
@@ -84,7 +86,14 @@ export class Persistence implements Feature {
 
   /** 状態パネルに出す 1 行 */
   get status(): string {
-    return STATUS[this.state];
+    return this.error ? `${STATUS[this.state]} (${this.error})` : STATUS[this.state];
+  }
+
+  /** 失敗の理由を、状態パネルに出せるよう覚えておく。Quest ではコンソールを見にくいため。 */
+  private fail(state: State, message: string, error?: unknown): void {
+    this.state = state;
+    this.error = error instanceof Error ? `${error.name}: ${error.message}` : error ? String(error) : message;
+    console.warn(`[persistence] ${message}`, error);
   }
 
   register<T>(key: string, participant: Persistent<T>): void {
@@ -113,9 +122,10 @@ export class Persistence implements Feature {
     this.creating = false;
     this.restoring = false;
     this.lastJson = '';
+    this.error = '';
     this.uuid = localStorage.getItem(ORIGIN_KEY);
     if (!session.restorePersistentAnchor) {
-      this.state = 'unsupported';
+      this.fail('unsupported', 'restorePersistentAnchor がありません');
       return;
     }
     if (!this.uuid) {
@@ -129,8 +139,7 @@ export class Persistence implements Feature {
       },
       (error: unknown) => {
         if (this.session !== session || this.state !== 'locating') return;
-        this.state = 'lost';
-        console.warn('[persistence] 基準のアンカーを復元できませんでした', error);
+        this.fail('lost', '基準のアンカーを復元できませんでした', error);
       },
     );
   }
@@ -171,7 +180,7 @@ export class Persistence implements Feature {
     const transform = new XRRigidTransform({ x: ctx.headPosition.x, y: 0, z: ctx.headPosition.z });
     const created = ctx.frame.createAnchor?.(transform, ctx.refSpace);
     if (!created) {
-      this.state = 'unsupported';
+      this.fail('unsupported', 'createAnchor がありません');
       return;
     }
     created
@@ -180,7 +189,9 @@ export class Persistence implements Feature {
         if (this.session !== session || this.state !== 'creating' || !uuid) {
           if (uuid) await session.deletePersistentAnchor?.(uuid);
           anchor.delete();
-          if (this.session === session && this.state === 'creating') this.state = 'unsupported';
+          if (this.session === session && this.state === 'creating') {
+            this.fail('unsupported', 'requestPersistentHandle がありません');
+          }
           return;
         }
         localStorage.setItem(ORIGIN_KEY, uuid);
@@ -191,8 +202,9 @@ export class Persistence implements Feature {
       })
       .catch((error: unknown) => {
         // Quest には永続アンカーの個数上限がある。配置した物が上限まで使っていると、ここで失敗する。
-        if (this.session === session && this.state === 'creating') this.state = 'failed';
-        console.warn('[persistence] 基準のアンカーを作れませんでした', error);
+        if (this.session === session && this.state === 'creating') {
+          this.fail('failed', '基準のアンカーを作れませんでした', error);
+        }
       });
   }
 
