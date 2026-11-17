@@ -45,6 +45,16 @@ const FLASH_DURATION = 0.25;
  * 写真の中の現実の景色が、枠から見えた範囲より広く写るなら大きく、狭く写るなら小さくする。
  */
 const CAMERA_FOV_HORIZONTAL = 73;
+/**
+ * パススルーカメラが、頭の正面に対して下を向いている角度 (度)。これも仮の値。
+ * 写真の中の現実の景色が、枠から見えた範囲より下にずれるなら大きく、上にずれるなら小さくする。
+ */
+const CAMERA_PITCH_DOWN = 8;
+/** 頭の向き → カメラの向き の回転 */
+const CAMERA_TILT = new THREE.Quaternion().setFromAxisAngle(
+  new THREE.Vector3(1, 0, 0),
+  -THREE.MathUtils.degToRad(CAMERA_PITCH_DOWN),
+);
 /** カメラの映像がない所の色 (sRGB) */
 const BACKDROP = new THREE.Color(0x10141c);
 
@@ -540,8 +550,8 @@ export class HandFrame implements Feature {
       this.videoTexture!.needsUpdate = true;
       const tanHorizontal = Math.tan(THREE.MathUtils.degToRad(CAMERA_FOV_HORIZONTAL / 2));
       uniforms.videoTan.value.set(tanHorizontal, (tanHorizontal * video.videoHeight) / video.videoWidth);
-      // カメラは頭と同じ向きを向いているものとして、枠の向き → カメラの向き の回転を求める。
-      _quaternion.copy(ctx.headQuaternion).invert().multiply(this.quaternion);
+      // カメラは頭に固定されているものとして、枠の向き → カメラの向き の回転を求める。
+      _quaternion.copy(ctx.headQuaternion).multiply(CAMERA_TILT).invert().multiply(this.quaternion);
       uniforms.toVideo.value.setFromMatrix4(_matrix.makeRotationFromQuaternion(_quaternion));
     }
 
