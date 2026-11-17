@@ -33,6 +33,8 @@ export class HandState {
   readonly grabQuaternion = new THREE.Quaternion();
   /** ボタンを押す・線を描く先端。素手: 人差し指の先 / コントローラー: レイの原点 */
   readonly tipPosition = new THREE.Vector3();
+  /** 手のひらが向いている方向 (手のひらから外へ出る向き) */
+  readonly palmNormal = new THREE.Vector3(0, -1, 0);
   /** grabPosition の速度 (m/s)。投げるときに使う。 */
   readonly velocity = new THREE.Vector3();
 
@@ -71,12 +73,16 @@ export class HandState {
       copyPosition(this.tipPosition, indexTip.transform.position);
       copyPosition(this.grabPosition, thumbTip.transform.position).add(this.tipPosition).multiplyScalar(0.5);
       copyQuaternion(this.grabQuaternion, wrist.transform.orientation);
+      // 手の関節の空間は、-Y が手のひらから外へ出る向きと決められている。
+      this.palmNormal.set(0, -1, 0).applyQuaternion(this.grabQuaternion);
     } else {
       const gripPose = source.gripSpace ? frame.getPose(source.gripSpace, refSpace) : null;
       const transform = (gripPose ?? rayPose).transform;
       copyPosition(this.grabPosition, transform.position);
       copyQuaternion(this.grabQuaternion, transform.orientation);
       this.tipPosition.copy(this.rayOrigin);
+      // gripSpace は X 軸が手のひらに垂直。握ったとき、左手のひらは +X、右手のひらは -X を向く。
+      this.palmNormal.set(this.handedness === 'left' ? 1 : -1, 0, 0).applyQuaternion(this.grabQuaternion);
     }
     this.tracked = true;
     this.updateVelocity(ctx.time);

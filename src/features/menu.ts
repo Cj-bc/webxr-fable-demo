@@ -29,18 +29,21 @@ const GROUPS: Group[] = ['tool', 'toggle', 'action'];
 
 /** 左手からメニューまでの高さ (m) */
 const HAND_OFFSET = 0.13;
-/** 視線の中心からこの角度以内に左手があるとき、メニューを出す */
-const LOOK_COS = Math.cos(THREE.MathUtils.degToRad(40));
+/**
+ * 左手のひらの向きの上向き成分が SHOW を超えたらメニューを出し、HIDE を下回ったら隠す。
+ * 境目で点滅しないよう、出す条件と隠す条件に差をつけている。
+ */
+const PALM_UP_SHOW = Math.cos(THREE.MathUtils.degToRad(50));
+const PALM_UP_HIDE = Math.cos(THREE.MathUtils.degToRad(65));
 /** 指先がパネルの手前この距離より離れると、次の押下を受け付ける (m) */
 const POKE_ARM_DISTANCE = 0.02;
 /** レイでメニューを押せる最大距離 (m) */
 const RAY_REACH = 2;
 
 const _forward = new THREE.Vector3();
-const _toMenu = new THREE.Vector3();
 
 /**
- * 左手の上に浮かぶメニュー。左手を見ると現れる。
+ * 左手の上に浮かぶメニュー。左手のひらを上に向けている間だけ現れる。
  * 反対の手の指先で直接押すか、レイを当ててつまむ / トリガーで押す。
  * 左手が見つからないときは、最後にあった場所 (最初は正面) に留まる。
  */
@@ -58,6 +61,7 @@ export class Menu implements Feature {
   private toolCount = 0;
   private time = 0;
   private placedInFront = false;
+  private palmUp = false;
   private readonly pokeArmed = new Map<HandState, boolean>();
 
   constructor(private readonly app: App) {
@@ -80,6 +84,7 @@ export class Menu implements Feature {
 
   start(): void {
     this.placedInFront = false;
+    this.palmUp = false;
     this.pokeArmed.clear();
     this.layoutDirty = true;
   }
@@ -169,10 +174,9 @@ export class Menu implements Feature {
     if (left.tracked) {
       mesh.position.copy(left.grabPosition);
       mesh.position.y += HAND_OFFSET + panel.height / 2;
-      _forward.set(0, 0, -1).applyQuaternion(ctx.headQuaternion);
-      _toMenu.copy(mesh.position).sub(ctx.headPosition).normalize();
+      this.palmUp = left.palmNormal.y > (this.palmUp ? PALM_UP_HIDE : PALM_UP_SHOW);
       // 左手で物をつかんでいる間は邪魔なので隠す。
-      mesh.visible = _forward.dot(_toMenu) > LOOK_COS && !left.selecting && !left.squeezing;
+      mesh.visible = this.palmUp && !left.selecting && !left.squeezing;
       this.placedInFront = true;
     } else if (!this.placedInFront) {
       _forward.set(0, 0, -1).applyQuaternion(ctx.headQuaternion).setY(0).normalize();
