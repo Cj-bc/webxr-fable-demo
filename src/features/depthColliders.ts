@@ -4,8 +4,8 @@ import { GROUP_ALL, GROUP_DEPTH, GROUP_HAND, RAPIER, interactionGroups } from '.
 import type { Room } from './room';
 
 /** 深度を読み出す格子の大きさ。この数だけ点を取る。 */
-const COLUMNS = 24;
-const ROWS = 24;
+const COLUMNS = 32;
+const ROWS = 32;
 const POINT_COUNT = COLUMNS * ROWS;
 /** 深度を読み出す間隔 (秒)。読み出しが終わるまでは次を始めない。 */
 const INTERVAL = 0.1;
@@ -19,12 +19,16 @@ const ROOM_MARGIN = 0.06;
 /** 手のこの範囲 (m) の点は使わない。手は HandColliders が関節ごとに当たり判定を持っている。 */
 const HAND_MARGIN = 0.15;
 /**
- * 三角形の面が視線とほぼ平行 (法線と視線の向きの cos がこれ未満) なら、面ではなく物の輪郭とみなして張らない。
- * 手前の物と奥の壁を結ぶ三角形は、視線に沿って奥へ伸びるので、ここで落とせる。
+ * 隣り合う 2 点の「距離の逆数」の差が、この割合以下なら、ほぼ同じ距離なので、そのまま面でつなぐ。
+ * これを超える差は、斜めの面か、物の輪郭 (手前の物と奥の壁の境目) のどちらか。
  */
-const MIN_FACING = 0.15;
-/** これより長い辺を持つ三角形は張らない (m)。輪郭の判定から漏れた、手前と奥を結ぶ三角形を落とす。 */
-const MAX_EDGE = 0.4;
+const SMOOTH_STEP = 0.05;
+/**
+ * 斜めの面と輪郭の見分け方。平らな面では、距離の逆数が格子に沿って一定の割合で変わる。
+ * 前後の点との差も同じくらい (この割合までのずれ) なら、斜めに続く面とみなしてつなぐ。
+ * 輪郭では、そこだけ差が跳ぶので、前後の差とは揃わない。
+ */
+const SLOPE_TOLERANCE = 0.5;
 const DEPTH_FRICTION = 0.8;
 const DEPTH_RESTITUTION = 0.4;
 const DEBUG_COLOR = 0xffa040;
@@ -59,18 +63,10 @@ interface Snapshot {
   world: THREE.Matrix4;
   /** クリップ空間 → 深度の視点 */
   inverseProjection: THREE.Matrix4;
-  eye: THREE.Vector3;
   session: number;
 }
 
 const _point = new THREE.Vector3();
-const _a = new THREE.Vector3();
-const _b = new THREE.Vector3();
-const _c = new THREE.Vector3();
-const _ab = new THREE.Vector3();
-const _ac = new THREE.Vector3();
-const _normal = new THREE.Vector3();
-const _ray = new THREE.Vector3();
 const IDENTITY = { x: 0, y: 0, z: 0, w: 1 };
 const EMPTY_VERTICES = new Float32Array(0);
 const EMPTY_INDICES = new Uint32Array(0);
@@ -119,6 +115,8 @@ export class DepthColliders implements Feature {
   /** 格子の点のワールド座標と、使える点かどうか */
   private readonly points = new Float32Array(POINT_COUNT * 3);
   private readonly valid = new Uint8Array(POINT_COUNT);
+  /** 格子の点の、距離 (m) の逆数。面の続き具合を調べるのに使う。 */
+  private readonly inverse = new Float32Array(POINT_COUNT);
   /** 格子の点 → 当たり判定の頂点の番号。使わない点は -1。 */
   private readonly vertexOf = new Int32Array(POINT_COUNT);
   private collider: RAPIER.Collider | null = null;
@@ -219,11 +217,9 @@ export class DepthColliders implements Feature {
       xr.enabled = previousXr;
     }
 
-    const world = new THREE.Matrix4().fromArray(transform.matrix);
     return {
-      world,
+      world: new THREE.Matrix4().fromArray(transform.matrix),
       inverseProjection: new THREE.Matrix4().fromArray(projection).invert(),
-      eye: new THREE.Vector3().setFromMatrixPosition(world),
       session: this.session,
     };
   }
@@ -237,6 +233,7 @@ export class DepthColliders implements Feature {
       valid[index] = 0;
       const meters = ((this.pixels[index * 4] * 256 + this.pixels[index * 4 + 1]) / 65535) * ENCODE_RANGE;
       if (meters < MIN_RANGE || meters > MAX_RANGE) continue;
+      this.inverse[index] = 1 / meters;
 
       // 格子の中心を、深度の視点の座標を経てワールド座標にする。
       const x = ((index % COLUMNS) + 0.5) / COLUMNS;
@@ -251,13 +248,18 @@ export class DepthColliders implements Feature {
       valid[index] = 1;
     }
 
-    // 格子の 1 マスを 2 つの三角形にする。使える点だけで、面として妥当なものだけを張る。
+    // 格子の 1 マスを 2 つの三角形にする。3 辺とも面として続いているものだけを張る。
     const triangles: number[] = [];
     for (let row = 0; row < ROWS - 1; row++) {
       for (let column = 0; column < COLUMNS - 1; column++) {
+        const right = this.continuous(column, row, 1, 0);
+        const up = this.continuous(column, row, 0, 1);
+        const diagonal = this.continuous(column + 1, row, -1, 1);
+        const top = this.continuous(column, row + 1, 1, 0);
+        const side = this.continuous(column + 1, row, 0, 1);
         const i = row * COLUMNS + column;
-        this.addTriangle(triangles, snapshot.eye, i, i + 1, i + COLUMNS);
-        this.addTriangle(triangles, snapshot.eye, i + 1, i + COLUMNS + 1, i + COLUMNS);
+        if (right && up && diagonal) triangles.push(i, i + 1, i + COLUMNS);
+        if (side && top && diagonal) triangles.push(i + 1, i + COLUMNS + 1, i + COLUMNS);
       }
     }
 
@@ -276,18 +278,33 @@ export class DepthColliders implements Feature {
     this.wakeTouching();
   }
 
-  private addTriangle(triangles: number[], eye: THREE.Vector3, i: number, j: number, k: number): void {
-    if (!this.valid[i] || !this.valid[j] || !this.valid[k]) return;
-    _a.fromArray(this.points, i * 3);
-    _b.fromArray(this.points, j * 3);
-    _c.fromArray(this.points, k * 3);
-    if (_a.distanceTo(_b) > MAX_EDGE || _b.distanceTo(_c) > MAX_EDGE || _c.distanceTo(_a) > MAX_EDGE) return;
-    _normal.crossVectors(_ab.subVectors(_b, _a), _ac.subVectors(_c, _a));
-    const area = _normal.length();
-    if (area < 1e-8) return;
-    _ray.addVectors(_a, _b).add(_c).divideScalar(3).sub(eye).normalize();
-    if (Math.abs(_normal.dot(_ray)) / area < MIN_FACING) return;
-    triangles.push(i, j, k);
+  /**
+   * 格子の点 (column, row) と、そこから (dc, dr) 進んだ点が、同じ面の続きかどうか。
+   *
+   * 平らな面では、距離の逆数が格子に沿って一定の割合で変わる (透視投影の性質)。
+   * なので、浅い角度で見た机や、傾いた背もたれのように距離が大きく変わる所でも、
+   * 前後の点との差と揃っていれば面の続きと分かる。輪郭では、そこだけ差が跳ぶ。
+   */
+  private continuous(column: number, row: number, dc: number, dr: number): boolean {
+    const a = this.indexAt(column, row);
+    const b = this.indexAt(column + dc, row + dr);
+    if (a < 0 || b < 0) return false;
+    const w = this.inverse;
+    const step = w[b] - w[a];
+    if (Math.abs(step) <= SMOOTH_STEP * Math.max(w[a], w[b])) return true;
+    const before = this.indexAt(column - dc, row - dr);
+    const after = this.indexAt(column + 2 * dc, row + 2 * dr);
+    return (
+      (before >= 0 && Math.abs(w[a] - w[before] - step) <= SLOPE_TOLERANCE * Math.abs(step)) ||
+      (after >= 0 && Math.abs(w[after] - w[b] - step) <= SLOPE_TOLERANCE * Math.abs(step))
+    );
+  }
+
+  /** 格子の点の番号。格子の外か、使えない点なら -1。 */
+  private indexAt(column: number, row: number): number {
+    if (column < 0 || column >= COLUMNS || row < 0 || row >= ROWS) return -1;
+    const index = row * COLUMNS + column;
+    return this.valid[index] ? index : -1;
   }
 
   /** 当たり判定と表示を、この三角形の集まりに置き換える。空なら当たり判定を消す。 */
