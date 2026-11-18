@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { App, Feature, FrameContext } from '../app';
 import { type HandState, copyPosition } from '../input';
 import { GROUP_ALL, GROUP_HAND, RAPIER, interactionGroups } from '../physics';
+import type { Room } from './room';
 
 /** 素手の関節の数 (WebXR Hand Input で決まっている) */
 const JOINT_COUNT = 25;
@@ -11,6 +12,7 @@ const CONTROLLER_RADIUS = 0.04;
 const RADIUS_TOLERANCE = 0.001;
 const HAND_FRICTION = 0.8;
 const HAND_RESTITUTION = 0.3;
+const DEBUG_COLOR = 0x80e0ff;
 
 /** 当たり判定の球 1 つ。素手なら関節 1 つ、コントローラーなら握りの位置に 1 つ。 */
 interface Slot {
@@ -20,6 +22,7 @@ interface Slot {
 }
 
 const _position = new THREE.Vector3();
+const _matrix = new THREE.Matrix4();
 
 /**
  * 自分の手を物理の当たり判定にする。素手では関節ごと、コントローラーでは握りの位置に球を置き、
@@ -34,8 +37,27 @@ export class HandColliders implements Feature {
   enabled = true;
 
   private readonly slots = new Map<HandState, Slot[]>();
+  /** 当たり判定の球の表示。「部屋の形」がオンのときに出す。 */
+  private readonly debug: THREE.InstancedMesh;
 
-  constructor(private readonly app: App) {
+  constructor(
+    private readonly app: App,
+    private readonly room: Room,
+  ) {
+    const debugMaterial = new THREE.MeshBasicMaterial({
+      color: DEBUG_COLOR,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.5,
+      depthWrite: false,
+    });
+    // 球は現実の手に重なっているので、遮蔽すると手に隠れて見えなくなる。
+    debugMaterial.userData.occlusion = 'ignore';
+    this.debug = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 8, 6), debugMaterial, JOINT_COUNT * 2);
+    this.debug.count = 0;
+    this.debug.frustumCulled = false;
+    app.scene.add(this.debug);
+
     app.menu.addToggle(
       '手で押す',
       () => this.enabled,
@@ -63,9 +85,12 @@ export class HandColliders implements Feature {
       for (const slot of slots) world.removeRigidBody(slot.body);
     }
     this.slots.clear();
+    this.debug.count = 0;
   }
 
   update(ctx: FrameContext): void {
+    this.debug.visible = this.room.visible;
+    this.debug.count = 0;
     for (const [hand, slots] of this.slots) {
       let used = 0;
       if (this.enabled && hand.tracked) {
@@ -84,6 +109,7 @@ export class HandColliders implements Feature {
       }
       for (let i = used; i < slots.length; i++) slots[i].collider.setEnabled(false);
     }
+    this.debug.instanceMatrix.needsUpdate = true;
   }
 
   private place(slot: Slot, position: RAPIER.Vector, radius: number): void {
@@ -99,6 +125,8 @@ export class HandColliders implements Feature {
       slot.body.setTranslation(position, true);
       slot.collider.setEnabled(true);
     }
+    _matrix.makeScale(radius, radius, radius).setPosition(position.x, position.y, position.z);
+    this.debug.setMatrixAt(this.debug.count++, _matrix);
   }
 }
 

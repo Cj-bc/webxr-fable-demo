@@ -23,7 +23,7 @@ const lighting = app.add(new Lighting(app));
 const occlusion = app.add(new Occlusion(app));
 app.add(new Cursors(app));
 const room = app.add(new Room(app));
-app.add(new HandColliders(app));
+app.add(new HandColliders(app, room));
 const depthColliders = app.add(new DepthColliders(app, room));
 const toys = app.add(new Toys(app));
 const hitTest = app.add(new HitTest(app));
