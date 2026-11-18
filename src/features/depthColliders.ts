@@ -6,7 +6,7 @@ import type { Room } from './room';
 /** 深度を読み出す格子の大きさ。この数だけ点を取る。 */
 const COLUMNS = 24;
 const ROWS = 24;
-const MAX_COLLIDERS = COLUMNS * ROWS;
+const POINT_COUNT = COLUMNS * ROWS;
 /** 深度を読み出す間隔 (秒)。読み出しが終わるまでは次を始めない。 */
 const INTERVAL = 0.1;
 /** この範囲の距離 (m) の点だけを使う。近すぎる所と遠い所は誤差が大きい。 */
@@ -18,10 +18,13 @@ const ENCODE_RANGE = 8;
 const ROOM_MARGIN = 0.06;
 /** 手のこの範囲 (m) の点は使わない。手は HandColliders が関節ごとに当たり判定を持っている。 */
 const HAND_MARGIN = 0.15;
-/** 球の半径は、隣の点との間隔のこの割合。隙間なく並ぶよう、半分より少し大きくする。 */
-const RADIUS_RATIO = 0.6;
-const MIN_RADIUS = 0.015;
-const MAX_RADIUS = 0.06;
+/**
+ * 三角形の面が視線とほぼ平行 (法線と視線の向きの cos がこれ未満) なら、面ではなく物の輪郭とみなして張らない。
+ * 手前の物と奥の壁を結ぶ三角形は、視線に沿って奥へ伸びるので、ここで落とせる。
+ */
+const MIN_FACING = 0.15;
+/** これより長い辺を持つ三角形は張らない (m)。輪郭の判定から漏れた、手前と奥を結ぶ三角形を落とす。 */
+const MAX_EDGE = 0.4;
 const DEPTH_FRICTION = 0.8;
 const DEPTH_RESTITUTION = 0.4;
 const DEBUG_COLOR = 0xffa040;
@@ -56,25 +59,31 @@ interface Snapshot {
   world: THREE.Matrix4;
   /** クリップ空間 → 深度の視点 */
   inverseProjection: THREE.Matrix4;
-  /** 横方向の射影の係数。点の間隔を求めるのに使う。 */
-  scaleX: number;
   eye: THREE.Vector3;
   session: number;
 }
 
 const _point = new THREE.Vector3();
+const _a = new THREE.Vector3();
+const _b = new THREE.Vector3();
+const _c = new THREE.Vector3();
+const _ab = new THREE.Vector3();
+const _ac = new THREE.Vector3();
+const _normal = new THREE.Vector3();
 const _ray = new THREE.Vector3();
-const _matrix = new THREE.Matrix4();
 const IDENTITY = { x: 0, y: 0, z: 0, w: 1 };
-/** 部屋の当たり判定だけを探す問い合わせ。手と深度の球は除く。 */
+const EMPTY_VERTICES = new Float32Array(0);
+const EMPTY_INDICES = new Uint32Array(0);
+/** 部屋の当たり判定だけを探す問い合わせ。手と深度の面は除く。 */
 const ROOM_ONLY = interactionGroups(GROUP_ALL, GROUP_ALL & ~(GROUP_HAND | GROUP_DEPTH));
 
 /**
  * 深度センサー (depth-sensing) の値から、現実の物の当たり判定をリアルタイムに作る。
  *
  * 部屋の当たり判定 (Room) は事前のスキャン結果なので、後から動かした椅子や、人、
- * 置いた荷物には当たらない。深度は毎フレーム届くので、それを点の集まりにして、
- * 点ごとに小さな球の当たり判定を置き直す。
+ * 置いた荷物には当たらない。深度は毎フレーム届くので、それを格子状の点の集まりにして、
+ * 隣り合う点を三角形で結んだ面を、当たり判定として作り直す。
+ * (点ごとに球を置く方式は、球の間、特に斜めから見た床や机の上で、物がすり抜けた。)
  *
  * 深度は GPU のテクスチャでしか受け取れないので、小さなレンダーターゲットへ縮小して書き出し、
  * 非同期に CPU へ読み出す。読み出しを待つ間も描画は止まらない。
@@ -82,7 +91,7 @@ const ROOM_ONLY = interactionGroups(GROUP_ALL, GROUP_ALL & ~(GROUP_HAND | GROUP_
 export class DepthColliders implements Feature {
   readonly name = 'depthColliders';
   enabled = true;
-  /** いま置いている当たり判定の数 */
+  /** いまの当たり判定の三角形の数 */
   count = 0;
 
   private readonly target = new THREE.WebGLRenderTarget(COLUMNS, ROWS, {
@@ -106,9 +115,14 @@ export class DepthColliders implements Feature {
   });
   private readonly quadScene = new THREE.Scene();
   private readonly quadCamera = new THREE.OrthographicCamera();
-  private readonly pixels = new Uint8Array(COLUMNS * ROWS * 4);
-  private readonly colliders: RAPIER.Collider[] = [];
-  private readonly debug: THREE.InstancedMesh;
+  private readonly pixels = new Uint8Array(POINT_COUNT * 4);
+  /** 格子の点のワールド座標と、使える点かどうか */
+  private readonly points = new Float32Array(POINT_COUNT * 3);
+  private readonly valid = new Uint8Array(POINT_COUNT);
+  /** 格子の点 → 当たり判定の頂点の番号。使わない点は -1。 */
+  private readonly vertexOf = new Int32Array(POINT_COUNT);
+  private collider: RAPIER.Collider | null = null;
+  private readonly debug: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
   private pending = false;
   private lastRequest = -Infinity;
   /** セッションごとに進める番号。終了後に届いた読み出し結果を捨てるのに使う。 */
@@ -124,14 +138,14 @@ export class DepthColliders implements Feature {
 
     const debugMaterial = new THREE.MeshBasicMaterial({
       color: DEBUG_COLOR,
+      wireframe: true,
       transparent: true,
-      opacity: 0.35,
+      opacity: 0.5,
       depthWrite: false,
     });
-    // 球は現実の面に半分埋まっているので、遮蔽すると見えなくなる。
+    // 面は現実の面にぴったり重なっているので、遮蔽すると見えなくなる。
     debugMaterial.userData.occlusion = 'ignore';
-    this.debug = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 8, 6), debugMaterial, MAX_COLLIDERS);
-    this.debug.count = 0;
+    this.debug = new THREE.Mesh(new THREE.BufferGeometry(), debugMaterial);
     this.debug.frustumCulled = false;
     app.scene.add(this.debug);
 
@@ -146,33 +160,17 @@ export class DepthColliders implements Feature {
     this.session++;
     this.pending = false;
     this.lastRequest = -Infinity;
-    const world = this.app.physics.world;
-    for (let i = 0; i < MAX_COLLIDERS; i++) {
-      this.colliders.push(
-        world.createCollider(
-          RAPIER.ColliderDesc.ball(MIN_RADIUS)
-            .setEnabled(false)
-            .setFriction(DEPTH_FRICTION)
-            .setRestitution(DEPTH_RESTITUTION)
-            .setCollisionGroups(interactionGroups(GROUP_DEPTH, GROUP_ALL & ~(GROUP_HAND | GROUP_DEPTH))),
-        ),
-      );
-    }
   }
 
   end(): void {
     this.session++;
-    const world = this.app.physics.world;
-    for (const collider of this.colliders) world.removeCollider(collider, false);
-    this.colliders.length = 0;
-    this.count = 0;
-    this.debug.count = 0;
+    this.setMesh(EMPTY_VERTICES, EMPTY_INDICES);
   }
 
   update(ctx: FrameContext): void {
     this.debug.visible = this.room.visible;
     if (!this.enabled) {
-      if (this.count > 0) this.apply(0);
+      if (this.count > 0) this.setMesh(EMPTY_VERTICES, EMPTY_INDICES);
       return;
     }
     if (this.pending || ctx.time - this.lastRequest < INTERVAL) return;
@@ -225,18 +223,18 @@ export class DepthColliders implements Feature {
     return {
       world,
       inverseProjection: new THREE.Matrix4().fromArray(projection).invert(),
-      scaleX: projection[0],
       eye: new THREE.Vector3().setFromMatrixPosition(world),
       session: this.session,
     };
   }
 
-  /** 読み出した距離を点にして、当たり判定の球を置き直す。 */
+  /** 読み出した距離を格子の点にし、隣り合う点を三角形で結んで、当たり判定を作り直す。 */
   private build(snapshot: Snapshot): void {
     const world = this.app.physics.world;
     const hands = this.app.input.hands.filter((hand) => hand.tracked);
-    let used = 0;
-    for (let index = 0; index < MAX_COLLIDERS; index++) {
+    const { points, valid } = this;
+    for (let index = 0; index < POINT_COUNT; index++) {
+      valid[index] = 0;
       const meters = ((this.pixels[index * 4] * 256 + this.pixels[index * 4 + 1]) / 65535) * ENCODE_RANGE;
       if (meters < MIN_RANGE || meters > MAX_RANGE) continue;
 
@@ -249,30 +247,69 @@ export class DepthColliders implements Feature {
       if (hands.some((hand) => hand.grabPosition.distanceTo(_point) < HAND_MARGIN)) continue;
       const nearest = world.projectPoint(_point, true, RAPIER.QueryFilterFlags.ONLY_FIXED, ROOM_ONLY);
       if (nearest && (nearest.isInside || _point.distanceTo(nearest.point) < ROOM_MARGIN)) continue;
-
-      // 球の手前の面が、測った面に来るように、視線の奥へ半径ぶんずらす。
-      const spacing = (2 * meters) / (snapshot.scaleX * COLUMNS);
-      const radius = THREE.MathUtils.clamp(spacing * RADIUS_RATIO, MIN_RADIUS, MAX_RADIUS);
-      _ray.copy(_point).sub(snapshot.eye).normalize();
-      _point.addScaledVector(_ray, radius);
-
-      const collider = this.colliders[used];
-      collider.setRadius(radius);
-      collider.setTranslation(_point);
-      collider.setEnabled(true);
-      this.debug.setMatrixAt(used, _matrix.makeScale(radius, radius, radius).setPosition(_point));
-      used++;
+      _point.toArray(points, index * 3);
+      valid[index] = 1;
     }
-    this.apply(used);
+
+    // 格子の 1 マスを 2 つの三角形にする。使える点だけで、面として妥当なものだけを張る。
+    const triangles: number[] = [];
+    for (let row = 0; row < ROWS - 1; row++) {
+      for (let column = 0; column < COLUMNS - 1; column++) {
+        const i = row * COLUMNS + column;
+        this.addTriangle(triangles, snapshot.eye, i, i + 1, i + COLUMNS);
+        this.addTriangle(triangles, snapshot.eye, i + 1, i + COLUMNS + 1, i + COLUMNS);
+      }
+    }
+
+    // 三角形に使われた点だけを、当たり判定の頂点として詰めて並べる。
+    this.vertexOf.fill(-1);
+    const vertices: number[] = [];
+    const indices = new Uint32Array(triangles.length);
+    triangles.forEach((index, n) => {
+      if (this.vertexOf[index] < 0) {
+        this.vertexOf[index] = vertices.length / 3;
+        vertices.push(points[index * 3], points[index * 3 + 1], points[index * 3 + 2]);
+      }
+      indices[n] = this.vertexOf[index];
+    });
+    this.setMesh(new Float32Array(vertices), indices);
     this.wakeTouching();
   }
 
-  /** 先頭の used 個だけを有効にする。 */
-  private apply(used: number): void {
-    for (let i = used; i < this.count; i++) this.colliders[i].setEnabled(false);
-    this.count = used;
-    this.debug.count = used;
-    this.debug.instanceMatrix.needsUpdate = true;
+  private addTriangle(triangles: number[], eye: THREE.Vector3, i: number, j: number, k: number): void {
+    if (!this.valid[i] || !this.valid[j] || !this.valid[k]) return;
+    _a.fromArray(this.points, i * 3);
+    _b.fromArray(this.points, j * 3);
+    _c.fromArray(this.points, k * 3);
+    if (_a.distanceTo(_b) > MAX_EDGE || _b.distanceTo(_c) > MAX_EDGE || _c.distanceTo(_a) > MAX_EDGE) return;
+    _normal.crossVectors(_ab.subVectors(_b, _a), _ac.subVectors(_c, _a));
+    const area = _normal.length();
+    if (area < 1e-8) return;
+    _ray.addVectors(_a, _b).add(_c).divideScalar(3).sub(eye).normalize();
+    if (Math.abs(_normal.dot(_ray)) / area < MIN_FACING) return;
+    triangles.push(i, j, k);
+  }
+
+  /** 当たり判定と表示を、この三角形の集まりに置き換える。空なら当たり判定を消す。 */
+  private setMesh(vertices: Float32Array, indices: Uint32Array): void {
+    const world = this.app.physics.world;
+    if (this.collider) world.removeCollider(this.collider, false);
+    this.collider =
+      indices.length > 0
+        ? world.createCollider(
+            RAPIER.ColliderDesc.trimesh(vertices, indices)
+              .setFriction(DEPTH_FRICTION)
+              .setRestitution(DEPTH_RESTITUTION)
+              .setCollisionGroups(interactionGroups(GROUP_DEPTH, GROUP_ALL & ~(GROUP_HAND | GROUP_DEPTH))),
+          )
+        : null;
+    this.count = indices.length / 3;
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+    geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+    this.debug.geometry.dispose();
+    this.debug.geometry = geometry;
   }
 
   /**
@@ -280,20 +317,18 @@ export class DepthColliders implements Feature {
    * 現実の物が押しのけられるよう、重なった物は起こす。
    */
   private wakeTouching(): void {
-    const world = this.app.physics.world;
-    for (let i = 0; i < this.count; i++) {
-      const collider = this.colliders[i];
-      world.intersectionsWithShape(
-        collider.translation(),
-        IDENTITY,
-        collider.shape,
-        (other) => {
-          const body = other.parent();
-          if (body?.isSleeping()) body.wakeUp();
-          return true;
-        },
-        RAPIER.QueryFilterFlags.ONLY_DYNAMIC,
-      );
-    }
+    const collider = this.collider;
+    if (!collider) return;
+    this.app.physics.world.intersectionsWithShape(
+      collider.translation(),
+      IDENTITY,
+      collider.shape,
+      (other) => {
+        const body = other.parent();
+        if (body?.isSleeping()) body.wakeUp();
+        return true;
+      },
+      RAPIER.QueryFilterFlags.ONLY_DYNAMIC,
+    );
   }
 }

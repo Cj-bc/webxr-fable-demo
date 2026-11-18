@@ -57,7 +57,7 @@ status.setNote(() => app.persistence.status);
 status.setDetail('depth-sensing', () => {
   if (!occlusion.active) return '深度データなし';
   const state = !occlusion.enabled ? '受信中 (遮蔽オフ)' : occlusion.soft ? '遮蔽中 (ぼかし)' : '遮蔽中 (くっきり)';
-  return depthColliders.enabled ? `${state} / 当たり判定 ${depthColliders.count} 点` : state;
+  return depthColliders.enabled ? `${state} / 当たり判定 ${depthColliders.count} 面` : state;
 });
 status.setDetail('light-estimation', () => (lighting.estimating ? '推定値を照明に反映中' : '固定の照明'));
 status.setFooter(
