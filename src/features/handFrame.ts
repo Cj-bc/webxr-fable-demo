@@ -43,8 +43,6 @@ const COOLDOWN = 0.8;
 const CAPTURE_SIZE = 1280;
 /** 空間に残す写真の枚数。超えたら古いものから消す (保存用の一覧には残る)。 */
 const MAX_WORLD_PHOTOS = 8;
-/** 空間に残す写真の、枠に対する大きさ */
-const PHOTO_SCALE = 0.6;
 const BORDER = 0.004;
 const FLASH_DURATION = 0.25;
 /**
@@ -673,11 +671,10 @@ export class HandFrame implements Feature {
     const texture = new THREE.CanvasTexture(canvas);
     const worldPhoto = this.createWorldPhoto(crypto.randomUUID(), texture, this.width, this.height);
     const photo = worldPhoto.group;
-    // 枠の位置にそのまま残すと次に撮る景色を塞ぐので、縮めて枠の下に置く。
-    photo.scale.setScalar(PHOTO_SCALE);
+    // 枠のあった場所に、枠と同じ大きさで置く。撮った景色にそのまま重なる。
+    // 同じ場所で続けて撮るときは、撮る間だけ前の写真を隠すので、景色は塞がない。
     photo.quaternion.copy(this.quaternion);
-    _up.set(0, 1, 0).applyQuaternion(this.quaternion);
-    photo.position.copy(this.center).addScaledVector(_up, -(this.height * (1 + PHOTO_SCALE)) / 2 - 0.03);
+    photo.position.copy(this.center);
     while (this.worldPhotos.length > MAX_WORLD_PHOTOS) this.removeWorldPhoto(this.worldPhotos.shift()!);
     return worldPhoto;
   }
@@ -701,7 +698,7 @@ export class HandFrame implements Feature {
     const halfHeight = height / 2;
     this.app.holding.add({
       object: photo,
-      // 枠を作っている手が、すぐ下にある写真をつまんでしまわないようにする。
+      // 枠を作っている手が、枠の位置にある写真をつまんでしまわないようにする。
       canHold: () => !this.active,
       distanceTo: (point) => {
         const local = photo.worldToLocal(_a.copy(point));
