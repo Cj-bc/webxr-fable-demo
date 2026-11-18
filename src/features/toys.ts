@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { App, Feature, FrameContext } from '../app';
 import type { HandState } from '../input';
-import { RAPIER } from '../physics';
+import { GROUP_ALL, GROUP_HAND, RAPIER, interactionGroups } from '../physics';
 import type { SavedPose } from './persistence';
 
 export type ToyKind = 'ball' | 'block';
@@ -27,6 +27,8 @@ interface Toy {
     relativePosition: THREE.Vector3;
     quaternion: THREE.Quaternion;
   } | null;
+  /** 手から離れたばかりで、まだ手の当たり判定と重なっているので、手とはぶつからないようにしている */
+  passingHands: boolean;
   lastImpactTime: number;
 }
 
@@ -49,6 +51,11 @@ const MIN_IMPACT_INTERVAL = 0.08;
 
 const BALL_GEOMETRY = new THREE.SphereGeometry(BASE_SIZE, 32, 20);
 const BLOCK_GEOMETRY = new THREE.BoxGeometry(BASE_SIZE * 2, BASE_SIZE * 2, BASE_SIZE * 2);
+
+const COLLIDE_WITH_ALL = interactionGroups(GROUP_ALL, GROUP_ALL);
+const PASS_THROUGH_HANDS = interactionGroups(GROUP_ALL, GROUP_ALL & ~GROUP_HAND);
+/** 手の当たり判定だけを探す問い合わせ */
+const HANDS_ONLY = interactionGroups(GROUP_ALL, GROUP_HAND);
 
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
@@ -139,8 +146,34 @@ export class Toys implements Feature {
         toy.mesh.position.set(position.x, position.y, position.z);
         const rotation = toy.body.rotation();
         toy.mesh.quaternion.set(rotation.x, rotation.y, rotation.z, rotation.w);
+        if (toy.passingHands && !this.touchesHands(toy)) this.setPassingHands(toy, false);
       }
     }
+  }
+
+  /**
+   * 離した瞬間の物は、まだ指の当たり判定に埋まっている。そのまま手とぶつかると、
+   * めり込みを解消しようとして弾き飛ばされるので、手から抜けきるまでは手とぶつからないようにする。
+   */
+  private setPassingHands(toy: Toy, passing: boolean): void {
+    toy.passingHands = passing;
+    toy.collider.setCollisionGroups(passing ? PASS_THROUGH_HANDS : COLLIDE_WITH_ALL);
+  }
+
+  private touchesHands(toy: Toy): boolean {
+    let touching = false;
+    this.app.physics.world.intersectionsWithShape(
+      toy.collider.translation(),
+      toy.collider.rotation(),
+      toy.collider.shape,
+      () => {
+        touching = true;
+        return false;
+      },
+      undefined,
+      HANDS_ONLY,
+    );
+    return touching;
   }
 
   private spawnInHand(kind: ToyKind, hand: HandState): void {
@@ -182,6 +215,7 @@ export class Toys implements Feature {
       offsetPosition: new THREE.Vector3(),
       offsetQuaternion: new THREE.Quaternion(),
       twoHand: null,
+      passingHands: false,
       lastImpactTime: 0,
     };
     this.byCollider.set(toy.collider.handle, toy);
@@ -237,6 +271,7 @@ export class Toys implements Feature {
     toy.body.setRotation(toy.mesh.quaternion, true);
     toy.body.setLinvel(hand.velocity, true);
     toy.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    this.setPassingHands(toy, true);
     hand.pulse(0.25, 20);
   }
 
@@ -295,6 +330,7 @@ export class Toys implements Feature {
     this.byCollider.delete(toy.collider.handle);
     world.removeCollider(toy.collider, false);
     toy.collider = world.createCollider(colliderDesc(toy.kind, toy.scale), toy.body);
+    this.setPassingHands(toy, toy.passingHands);
     this.byCollider.set(toy.collider.handle, toy);
   }
 

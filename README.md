@@ -97,7 +97,9 @@ deno task typecheck  # 型チェックのみ
 | 遮蔽 | 現実の物や自分の手で、仮想物体を隠す |
 | 遮蔽をぼかす | オン: 輪郭をなめらかに薄くする (チラつきが少ないが重い) / オフ: 画素ごとにくっきり隠す |
 | 手で撮影 | 両手で作った枠で写真を撮る機能を有効にする |
-| 部屋の形 | 検出された平面・メッシュと、その種類 (床、壁、机など) を表示する |
+| 手で押す | 自分の手 (素手の関節、コントローラー) でボールやブロックを押したり叩いたりできるようにする |
+| 深度で当たる | 深度センサーで見えた物 (部屋のスキャン後に動かした物や人) にもボールやブロックが当たる。「部屋の形」がオンなら、当たり判定の面をオレンジの網目で表示する |
+| 部屋の形 | 検出された平面・メッシュと、その種類 (床、壁、机など) を表示する。手と深度の当たり判定も表示する |
 | 状態パネル | 各 WebXR 機能が有効か、いま何が取れているかを表示する |
 
 「全部消す」は、おもちゃ・配置した物 (保存したアンカーを含む)・線・ポータルをすべて消します。
@@ -111,11 +113,13 @@ deno task typecheck  # 型チェックのみ
 | `immersive-ar` セッション | パススルー映像の上に描画する | `src/app.ts` |
 | 入力 (`XRInputSource`) | 素手とコントローラーを同じ形で扱う | `src/input.ts` |
 | `hand-tracking` | 指先・手首の関節の姿勢を読む。握る動きの判定にも使う | `src/input.ts` |
+| `hand-tracking` (関節の半径) | 関節ごとの球で、手を物理の当たり判定にする | `src/features/handColliders.ts` |
 | `plane-detection` / `mesh-detection` | 部屋の形の表示、物理の当たり判定、影を受ける面 | `src/features/room.ts` |
 | `hit-test` | レイと現実の面の交点 | `src/features/hitTest.ts` |
 | `anchors` (永続アンカーを含む) | 置いた物を現実の位置に固定し、次回も復元する | `src/features/placement.ts` |
 | `anchors` (永続アンカー) | 部屋の基準を 1 つ置き、そこから見た位置で空間の物を保存・復元する | `src/features/persistence.ts` |
 | `depth-sensing` | 現実の物による遮蔽 | `src/features/occlusion.ts` |
+| `depth-sensing` (GPU からの読み出し) | 後から動かした物や人の当たり判定 | `src/features/depthColliders.ts` |
 | `light-estimation` | 現実の光源に照明を合わせる | `src/features/lighting.ts` |
 | ハプティクス (`Gamepad.hapticActuators`) | つかむ・置く・押すときの振動 | `src/input.ts` の `pulse()` |
 

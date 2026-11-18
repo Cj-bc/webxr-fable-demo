@@ -15,7 +15,7 @@ export const OPTIONAL_FEATURES: XRFeatureInfo[] = [
   { id: 'mesh-detection', label: 'メッシュ検出', use: '部屋の形状の可視化と、物理の当たり判定' },
   { id: 'hit-test', label: 'ヒットテスト', use: 'レイで指した現実の面に物を置く' },
   { id: 'anchors', label: 'アンカー', use: '置いた物を現実の位置に固定し、次回も復元する' },
-  { id: 'depth-sensing', label: '深度センシング', use: '現実の物や手で仮想物体を隠す' },
+  { id: 'depth-sensing', label: '深度センシング', use: '現実の物や手で仮想物体を隠す。動いた物の当たり判定' },
   { id: 'light-estimation', label: '光源推定', use: '部屋の明るさに照明を合わせる' },
 ];
 
