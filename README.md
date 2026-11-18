@@ -98,6 +98,7 @@ deno task typecheck  # 型チェックのみ
 | 遮蔽をぼかす | オン: 輪郭をなめらかに薄くする (チラつきが少ないが重い) / オフ: 画素ごとにくっきり隠す |
 | 手で撮影 | 両手で作った枠で写真を撮る機能を有効にする |
 | 手で押す | 自分の手 (素手の関節、コントローラー) でボールやブロックを押したり叩いたりできるようにする |
+| 深度で当たる | 深度センサーで見えた物 (部屋のスキャン後に動かした物や人) にもボールやブロックが当たる。「部屋の形」がオンなら、当たり判定の球をオレンジで表示する |
 | 部屋の形 | 検出された平面・メッシュと、その種類 (床、壁、机など) を表示する |
 | 状態パネル | 各 WebXR 機能が有効か、いま何が取れているかを表示する |
 
@@ -118,6 +119,7 @@ deno task typecheck  # 型チェックのみ
 | `anchors` (永続アンカーを含む) | 置いた物を現実の位置に固定し、次回も復元する | `src/features/placement.ts` |
 | `anchors` (永続アンカー) | 部屋の基準を 1 つ置き、そこから見た位置で空間の物を保存・復元する | `src/features/persistence.ts` |
 | `depth-sensing` | 現実の物による遮蔽 | `src/features/occlusion.ts` |
+| `depth-sensing` (GPU からの読み出し) | 後から動かした物や人の当たり判定 | `src/features/depthColliders.ts` |
 | `light-estimation` | 現実の光源に照明を合わせる | `src/features/lighting.ts` |
 | ハプティクス (`Gamepad.hapticActuators`) | つかむ・置く・押すときの振動 | `src/input.ts` の `pulse()` |
 

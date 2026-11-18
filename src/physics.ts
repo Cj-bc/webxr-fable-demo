@@ -10,6 +10,8 @@ export { RAPIER };
 export const GROUP_ALL = 0xffff;
 /** 手 (素手の関節・コントローラー) の当たり判定 */
 export const GROUP_HAND = 1 << 1;
+/** 深度センサーから作った当たり判定 */
+export const GROUP_DEPTH = 1 << 2;
 
 export function interactionGroups(membership: number, filter: number): number {
   return ((membership << 16) | filter) >>> 0;
