@@ -1,0 +1,42 @@
+{
+  "cli_version": "0.13.2",
+  "checkpoint_id": "01M7Q893AQVVZGDZX1XJ6Y9EBY",
+  "strategy": "manual-commit",
+  "branch": "feat/realtime-colliders",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/features/depthColliders.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 14,
+    "cache_creation_tokens": 12437,
+    "cache_read_tokens": 1110081,
+    "output_tokens": 10139,
+    "api_call_count": 6
+  },
+  "redaction": {
+    "replacements": 907,
+    "layers": {
+      "betterleaks": 2,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "custom": 891,
+      "entropy": 4,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    },
+    "custom_rules_active": 2
+  }
+}
