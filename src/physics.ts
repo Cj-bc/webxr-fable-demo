@@ -3,6 +3,18 @@ import type { Feature, FrameContext } from './app';
 
 export { RAPIER };
 
+/**
+ * 衝突グループ。Rapier では 32 bit の上位 16 bit が「自分の所属」、下位 16 bit が「ぶつかる相手」で、
+ * 2 つのコライダーは互いの所属が相手の「ぶつかる相手」に含まれるときだけ衝突する。
+ */
+export const GROUP_ALL = 0xffff;
+/** 手 (素手の関節・コントローラー) の当たり判定 */
+export const GROUP_HAND = 1 << 1;
+
+export function interactionGroups(membership: number, filter: number): number {
+  return ((membership << 16) | filter) >>> 0;
+}
+
 /** 衝突が始まったときの通知。引数は衝突した 2 つのコライダーのハンドル。 */
 export type CollisionListener = (collider1: number, collider2: number) => void;
 
