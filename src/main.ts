@@ -2,6 +2,7 @@ import { App } from './app';
 import { Audio } from './features/audio';
 import { Cursors } from './features/cursors';
 import { DepthColliders } from './features/depthColliders';
+import { DepthView } from './features/depthView';
 import { Drawing } from './features/drawing';
 import { HandColliders } from './features/handColliders';
 import { HandFrame } from './features/handFrame';
@@ -25,6 +26,7 @@ app.add(new Cursors(app));
 const room = app.add(new Room(app));
 app.add(new HandColliders(app, room));
 const depthColliders = app.add(new DepthColliders(app, room));
+const depthView = app.add(new DepthView(app));
 const toys = app.add(new Toys(app));
 const hitTest = app.add(new HitTest(app));
 const placement = app.add(new Placement(app, hitTest));
@@ -57,7 +59,8 @@ status.setNote(() => app.persistence.status);
 status.setDetail('depth-sensing', () => {
   if (!occlusion.active) return '深度データなし';
   const state = !occlusion.enabled ? '受信中 (遮蔽オフ)' : occlusion.soft ? '遮蔽中 (ぼかし)' : '遮蔽中 (くっきり)';
-  return depthColliders.enabled ? `${state} / 当たり判定 ${depthColliders.count} 面` : state;
+  const view = depthView.enabled ? ' / 深度だけ表示中' : '';
+  return (depthColliders.enabled ? `${state} / 当たり判定 ${depthColliders.count} 面` : state) + view;
 });
 status.setDetail('light-estimation', () => (lighting.estimating ? '推定値を照明に反映中' : '固定の照明'));
 status.setFooter(
