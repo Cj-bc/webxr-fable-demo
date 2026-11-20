@@ -1,0 +1,42 @@
+{
+  "cli_version": "0.13.2",
+  "checkpoint_id": "01M7VCYY32SYY6J55MNN8VBCJX",
+  "strategy": "manual-commit",
+  "branch": "feat/realtime-colliders",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "MAX_RANGE)"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 4,
+    "cache_creation_tokens": 919,
+    "cache_read_tokens": 389170,
+    "output_tokens": 825,
+    "api_call_count": 2
+  },
+  "redaction": {
+    "replacements": 919,
+    "layers": {
+      "betterleaks": 2,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "custom": 903,
+      "entropy": 4,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    },
+    "custom_rules_active": 2
+  }
+}
