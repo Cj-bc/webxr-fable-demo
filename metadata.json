@@ -3,8 +3,9 @@
   "checkpoint_id": "01M86PE9PFEJEYS3WP2EW2AQH8",
   "strategy": "manual-commit",
   "branch": "master",
-  "checkpoints_count": 2,
+  "checkpoints_count": 5,
   "files_touched": [
+    "src/blobStore.ts",
     "tests/blobStore_transaction_test.ts"
   ],
   "sessions": [
@@ -14,17 +15,31 @@
       "compact_transcript": "/0/transcript.jsonl",
       "content_hash": "/0/content_hash.txt",
       "prompt": "/0/prompt.txt"
+    },
+    {
+      "metadata": "/1/metadata.json",
+      "transcript": "/1/full.jsonl",
+      "compact_transcript": "/1/transcript.jsonl",
+      "content_hash": "/1/content_hash.txt",
+      "prompt": "/1/prompt.txt"
     }
   ],
+  "token_usage": {
+    "input_tokens": 50816,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 723200,
+    "output_tokens": 2025,
+    "api_call_count": 16
+  },
   "redaction": {
-    "replacements": 229,
+    "replacements": 446,
     "layers": {
       "betterleaks": 0,
       "connection_string": 0,
       "credential_key": 0,
       "credential_value": 0,
       "credentialed_uri": 0,
-      "custom": 222,
+      "custom": 432,
       "entropy": 0,
       "key_context": 0,
       "provider_token": 0,

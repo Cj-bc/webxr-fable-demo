@@ -1,0 +1,9 @@
+Read-only independent review of tests/handFrame_camera_test.ts before fixes. For each case verify it faithfully reproduces the claimed public HandFrame.startCamera defect: optional device enumeration failure incorrectly kills acquired camera, and synchronous stop during requesting still requests media and leaves startCamera pending. Check observed red assertions or run tests as needed, cleanup and whether only tests changed. Baseline dirty before task: .claude/settings.json modified; .entire/agent-guide.md, AGENTS.md, CLAUDE.md, MAX_RANGE) untracked. HEAD 8f2dc5d. Report pass or concrete problems separately; no edits, no staging/commits or delegation. Others share the repo. Use local Deno if needed.
+
+---
+
+The small pane cut off your final. Reply in under 90 characters: case 1 pass/fail, case 2 pass/fail, only tests changed yes/no, any blocker.
+
+---
+
+Read-only independent review of tests/blobStore_transaction_test.ts and tests/blobStore_open_retry_test.ts versus src/blobStore.ts. Verify they reproduce the claimed problems (request success preceding commit/abort, cached rejected open preventing a retry in the same module), assertions and event doubles, and that only those 2 tests were added by author. Pending unrelated baseline includes camera fixes in src/features/handFrame.ts and src/landing.ts, camera test blob 61372158a09747d3733049692ca70154603c2829, .claude/settings.json, .entire/agent-guide.md, AGENTS.md, CLAUDE.md, MAX_RANGE). Parent is committing camera work separately now. No editing/staging/delegation. Use existing red observations or deno test --frozen --cached-only --no-check --unstable-sloppy-imports tests/blobStore_transaction_test.ts tests/blobStore_open_retry_test.ts to verify. Finish with one short line giving each verdict and tests-only verification.
