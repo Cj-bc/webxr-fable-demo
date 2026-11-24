@@ -3,7 +3,7 @@
   "checkpoint_id": "01M86KPYSTDH4C7DZBX622MJ35",
   "strategy": "manual-commit",
   "branch": "master",
-  "checkpoints_count": 4,
+  "checkpoints_count": 5,
   "files_touched": [
     "index.html"
   ],
@@ -28,24 +28,31 @@
       "compact_transcript": "/2/transcript.jsonl",
       "content_hash": "/2/content_hash.txt",
       "prompt": "/2/prompt.txt"
+    },
+    {
+      "metadata": "/3/metadata.json",
+      "transcript": "/3/full.jsonl",
+      "compact_transcript": "/3/transcript.jsonl",
+      "content_hash": "/3/content_hash.txt",
+      "prompt": "/3/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 107880,
-    "cache_creation_tokens": 80057,
-    "cache_read_tokens": 5112940,
-    "output_tokens": 24269,
-    "api_call_count": 71
+    "input_tokens": 107902,
+    "cache_creation_tokens": 143794,
+    "cache_read_tokens": 5870588,
+    "output_tokens": 41365,
+    "api_call_count": 82
   },
   "redaction": {
-    "replacements": 490,
+    "replacements": 690,
     "layers": {
       "betterleaks": 0,
       "connection_string": 0,
       "credential_key": 0,
       "credential_value": 0,
       "credentialed_uri": 0,
-      "custom": 475,
+      "custom": 675,
       "entropy": 6,
       "key_context": 0,
       "provider_token": 0,
