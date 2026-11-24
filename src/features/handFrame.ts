@@ -391,6 +391,8 @@ export class HandFrame implements Feature {
     this.cameraRequest = request;
     this.cameraDeviceId = deviceId;
     this.onCameraChange?.({ kind: 'requesting' });
+    // 通知の中で停止・切り替えが済んでいたら、古い要求で許可ダイアログを開かない。
+    if (request.signal.aborted) return;
     try {
       const stopped = new Promise<void>((resolve) => {
         request.signal.addEventListener('abort', () => resolve(), { once: true });
@@ -438,7 +440,8 @@ export class HandFrame implements Feature {
       stream = await acquire();
     }
     signal.throwIfAborted();
-    const devices = await media.enumerateDevices();
+    // 一覧はカメラの選択にだけ使う。列挙に失敗しても、取得済みの映像は再生できる。
+    const devices = await media.enumerateDevices().catch(() => []);
     signal.throwIfAborted();
     const cameras = devices.filter((device) => device.kind === 'videoinput')
       .map((device, i) => ({ deviceId: device.deviceId, label: device.label || `カメラ ${i + 1}` }));

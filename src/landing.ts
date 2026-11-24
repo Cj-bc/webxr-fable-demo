@@ -112,7 +112,7 @@ export function setupCameraButton(control: CameraControl): (state: CameraState) 
         break;
     }
     button.disabled = current === 'unsupported';
-    select.disabled = current !== 'running';
+    select.disabled = current !== 'running' || select.options.length === 0;
     preview.hidden = current !== 'running';
   };
 
