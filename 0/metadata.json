@@ -1,0 +1,52 @@
+{
+  "cli_version": "0.13.2",
+  "checkpoint_id": "01M86M11JZP87ABGV228T9N7TN",
+  "session_id": "01a20d2e-dbef-7442-82ab-d7bcb9ebde6c",
+  "strategy": "manual-commit",
+  "created_at": "2026-11-24T11:11:03.1595469Z",
+  "branch": "master",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/features/handFrame.ts",
+    "src/landing.ts"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6.2-astra",
+  "turn_id": "ab240478834c",
+  "checkpoint_transcript_start": 333,
+  "transcript_lines_at_start": 333,
+  "compact_transcript_start": 100,
+  "token_usage": {
+    "input_tokens": 33631,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 3703552,
+    "output_tokens": 8143,
+    "api_call_count": 29
+  },
+  "session_token_usage": {
+    "input_tokens": 141445,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 6958464,
+    "output_tokens": 15944,
+    "api_call_count": 69
+  },
+  "redaction": {
+    "replacements": 335,
+    "layers": {
+      "betterleaks": 0,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "custom": 320,
+      "entropy": 6,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    },
+    "custom_rules_active": 2
+  },
+  "session_metrics": {
+    "turn_count": 1
+  }
+}
