@@ -16,8 +16,14 @@ const MAX_RANGE = 4;
 const ENCODE_RANGE = 8;
 /** 部屋の当たり判定 (床・壁・机など) からこの距離 (m) 以内の点は、もう当たり判定があるので使わない */
 const ROOM_MARGIN = 0.06;
-/** 手のこの範囲 (m) の点は使わない。手は HandColliders が関節ごとに当たり判定を持っている。 */
-const HAND_MARGIN = 0.15;
+/**
+ * 素手の関節の表面からこの距離 (m) 以内の点は、手そのものなので使わない。
+ * 手は HandColliders が関節ごとに当たり判定を持っている。
+ * 手のひらの関節の間と、深度の遅れや輪郭の揺れのぶんを見込む。広げすぎると、手を近付けた物の面まで消える。
+ */
+const JOINT_MARGIN = 0.04;
+/** コントローラーは関節が取れないので、握りの位置からこの範囲 (m) の点を使わない。 */
+const CONTROLLER_MARGIN = 0.1;
 /**
  * 隣り合う 2 点の「距離の逆数」の差が、この割合以下なら、ほぼ同じ距離なので、そのまま面でつなぐ。
  * これを超える差は、斜めの面か、物の輪郭 (手前の物と奥の壁の境目) のどちらか。
@@ -63,10 +69,19 @@ interface Snapshot {
   world: THREE.Matrix4;
   /** クリップ空間 → 深度の視点 */
   inverseProjection: THREE.Matrix4;
+  /** 手の点を除く球 (xyz が中心、w が半径)。深度と同じ時点の手の位置にする。 */
+  hands: THREE.Vector4[];
   session: number;
 }
 
 const _point = new THREE.Vector3();
+
+function onSphere(point: THREE.Vector3, sphere: THREE.Vector4): boolean {
+  const dx = point.x - sphere.x;
+  const dy = point.y - sphere.y;
+  const dz = point.z - sphere.z;
+  return dx * dx + dy * dy + dz * dz < sphere.w * sphere.w;
+}
 const IDENTITY = { x: 0, y: 0, z: 0, w: 1 };
 const EMPTY_VERTICES = new Float32Array(0);
 const EMPTY_INDICES = new Uint32Array(0);
@@ -220,14 +235,38 @@ export class DepthColliders implements Feature {
     return {
       world: new THREE.Matrix4().fromArray(transform.matrix),
       inverseProjection: new THREE.Matrix4().fromArray(projection).invert(),
+      hands: this.handSpheres(ctx),
       session: this.session,
     };
+  }
+
+  /**
+   * 深度に写った手を見分けるための球。素手なら関節ごと、コントローラーなら握りの位置に 1 つ。
+   * (握りの位置からの距離だけで除くと、手を近付けた机や箱の面まで消えて、物がすり抜けた。)
+   */
+  private handSpheres(ctx: FrameContext): THREE.Vector4[] {
+    const spheres: THREE.Vector4[] = [];
+    for (const hand of this.app.input.hands) {
+      if (!hand.tracked) continue;
+      const joints = hand.source?.hand;
+      if (!joints) {
+        const { x, y, z } = hand.grabPosition;
+        spheres.push(new THREE.Vector4(x, y, z, CONTROLLER_MARGIN));
+        continue;
+      }
+      for (const space of joints.values()) {
+        const pose = ctx.frame.getJointPose?.(space, ctx.refSpace);
+        if (!pose) continue;
+        const { x, y, z } = pose.transform.position;
+        spheres.push(new THREE.Vector4(x, y, z, (pose.radius ?? 0.01) + JOINT_MARGIN));
+      }
+    }
+    return spheres;
   }
 
   /** 読み出した距離を格子の点にし、隣り合う点を三角形で結んで、当たり判定を作り直す。 */
   private build(snapshot: Snapshot): void {
     const world = this.app.physics.world;
-    const hands = this.app.input.hands.filter((hand) => hand.tracked);
     const { points, valid } = this;
     for (let index = 0; index < POINT_COUNT; index++) {
       valid[index] = 0;
@@ -241,7 +280,7 @@ export class DepthColliders implements Feature {
       _point.set(x * 2 - 1, y * 2 - 1, -1).applyMatrix4(snapshot.inverseProjection);
       _point.multiplyScalar(meters / -_point.z).applyMatrix4(snapshot.world);
 
-      if (hands.some((hand) => hand.grabPosition.distanceTo(_point) < HAND_MARGIN)) continue;
+      if (snapshot.hands.some((sphere) => onSphere(_point, sphere))) continue;
       const nearest = world.projectPoint(_point, true, RAPIER.QueryFilterFlags.ONLY_FIXED, ROOM_ONLY);
       if (nearest && (nearest.isInside || _point.distanceTo(nearest.point) < ROOM_MARGIN)) continue;
       _point.toArray(points, index * 3);
