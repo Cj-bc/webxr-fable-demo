@@ -1,0 +1,43 @@
+{
+  "cli_version": "0.13.2",
+  "checkpoint_id": "01M86M11JZP87ABGV228T9N7TN",
+  "session_id": "035ce6db-05bd-4368-b8cc-0f648d28d63e",
+  "strategy": "manual-commit",
+  "created_at": "2026-11-24T11:11:03.5215809Z",
+  "branch": "master",
+  "checkpoints_count": 2,
+  "save_step_count": 1,
+  "files_touched": [
+    "src/features/handFrame.ts"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-5-5",
+  "turn_id": "46f063c5de1b",
+  "compact_transcript_start": 0,
+  "session_token_usage": {
+    "input_tokens": 28,
+    "cache_creation_tokens": 39440,
+    "cache_read_tokens": 795523,
+    "output_tokens": 4731,
+    "api_call_count": 13
+  },
+  "redaction": {
+    "replacements": 79,
+    "layers": {
+      "betterleaks": 0,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "custom": 79,
+      "entropy": 0,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    },
+    "custom_rules_active": 2
+  },
+  "session_metrics": {
+    "turn_count": 2
+  }
+}
