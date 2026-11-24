@@ -20,8 +20,11 @@ function open(): Promise<IDBDatabase> {
 async function run<T>(mode: IDBTransactionMode, action: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
   const db = await open();
   return new Promise((resolve, reject) => {
-    const request = action(db.transaction(STORE, mode).objectStore(STORE));
-    request.onsuccess = () => resolve(request.result);
+    const transaction = db.transaction(STORE, mode);
+    const request = action(transaction.objectStore(STORE));
+    // 要求が成功しても、トランザクションの完了前に書き込みが取り消されることがある。
+    transaction.oncomplete = () => resolve(request.result);
+    transaction.onabort = () => reject(transaction.error ?? new DOMException('トランザクションが中断されました', 'AbortError'));
     request.onerror = () => reject(request.error);
   });
 }
