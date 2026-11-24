@@ -3,7 +3,7 @@
   "checkpoint_id": "01M86P5RVSP0XHS5SSZKGG4Q3Y",
   "strategy": "manual-commit",
   "branch": "master",
-  "checkpoints_count": 4,
+  "checkpoints_count": 5,
   "files_touched": [
     "src/features/handFrame.ts",
     "src/landing.ts"
@@ -22,24 +22,31 @@
       "compact_transcript": "/1/transcript.jsonl",
       "content_hash": "/1/content_hash.txt",
       "prompt": "/1/prompt.txt"
+    },
+    {
+      "metadata": "/2/metadata.json",
+      "transcript": "/2/full.jsonl",
+      "compact_transcript": "/2/transcript.jsonl",
+      "content_hash": "/2/content_hash.txt",
+      "prompt": "/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 329,
+    "input_tokens": 30688,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 88320,
-    "output_tokens": 147,
-    "api_call_count": 1
+    "cache_read_tokens": 469120,
+    "output_tokens": 1244,
+    "api_call_count": 11
   },
   "redaction": {
-    "replacements": 428,
+    "replacements": 482,
     "layers": {
       "betterleaks": 0,
       "connection_string": 0,
       "credential_key": 0,
       "credential_value": 0,
       "credentialed_uri": 0,
-      "custom": 404,
+      "custom": 455,
       "entropy": 4,
       "key_context": 0,
       "provider_token": 0,
