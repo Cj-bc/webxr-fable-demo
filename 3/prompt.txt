@@ -1,0 +1,5 @@
+Independent read-only implementation review, both camera regressions are now green. Inspect src/features/handFrame.ts and src/landing.ts diff, public behavior, cancellation, implications for existing device switching and fallback. Verify tests/handFrame_camera_test.ts hash via git hash-object equals pre-fix 61372158a09747d3733049692ca70154603c2829 and no test changed. Baseline pre-existing unrelated .claude/settings.json and untracked agent instruction files/MAX_RANGE). No edits, no staging/commit, no delegation. Others share worktree. Report approve or actionable findings for each and hash result, concise final.
+
+---
+
+Pane cut off. Reply in max 55 characters: issue A approved? B approved? identical test hash? or finding.
