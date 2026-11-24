@@ -1,4 +1,4 @@
-import type { CameraInfo } from './features/handFrame';
+import type { CameraState, CameraStopReason } from './features/handFrame';
 import { ALL_FEATURES } from './xrFeatures';
 
 const enterButton = document.querySelector<HTMLButtonElement>('#enter')!;
@@ -39,53 +39,95 @@ export async function setupEnterButton(onEnter: () => void): Promise<void> {
   enterButton.disabled = false;
 }
 
+interface CameraControl {
+  /** deviceId のカメラ (省略時はおまかせ) の映像を取り始める。結果は CameraState で返ってくる。 */
+  start(deviceId?: string): void;
+  /** 使用中のカメラを止め、待っている要求も取り消す */
+  stop(): void;
+}
+
+const STOP_MESSAGES: Record<CameraStopReason, string> = {
+  user: 'カメラを止めました。写真に現実の景色を入れるときは、もう一度開始してください。',
+  'session-end': 'MR を終えたので、カメラを止めました。次の MR の前に、もう一度開始してください。',
+  disabled: '「手で撮影」をオフにしたので、カメラを止めました。オンに戻すか、ここで開始すると再開します。',
+  pagehide: 'ページを離れたので、カメラを止めました。',
+  'track-ended': 'カメラの映像が途切れました (許可の取り消しなど)。使うときは、もう一度開始してください。',
+};
+
+function readSavedCamera(): string | undefined {
+  try {
+    return localStorage.getItem(CAMERA_KEY) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function saveCamera(deviceId: string): void {
+  try {
+    localStorage.setItem(CAMERA_KEY, deviceId);
+  } catch {
+    // 覚えられなくても、今回の選択には影響しない。
+  }
+}
+
 /**
- * カメラの許可ボタン。許可のダイアログは MR セッション中には出せないので、開始前に押してもらう。
+ * カメラの開始・停止ボタン。許可のダイアログは MR セッション中には出せないので、開始前に押してもらう。
  * 取れた映像はページに表示し、どのカメラが使われているかを目で確かめられるようにする。
- * onRequest は、deviceId のカメラ (省略時はおまかせ) の映像を取り始める。使えなければ null を返す。
+ * Quest では、このプレビューは MR に入っても止めずに使い続け (写真の背景になる)、MR を終えたら止める。
  */
-export function setupCameraButton(onRequest: (deviceId?: string) => Promise<CameraInfo | null>): void {
+export function setupCameraButton(control: CameraControl): (state: CameraState) => void {
   const button = document.querySelector<HTMLButtonElement>('#camera')!;
   const status = document.querySelector<HTMLSpanElement>('#camera-status')!;
   const preview = document.querySelector<HTMLDivElement>('#camera-preview')!;
   const select = document.querySelector<HTMLSelectElement>('#camera-select')!;
 
-  const request = (deviceId?: string): void => {
-    button.disabled = true;
-    select.disabled = true;
-    status.textContent = 'カメラの映像を待っています…';
-    onRequest(deviceId)
-      // 覚えていたカメラが無くなっていた場合は、おまかせで選び直す。
-      .catch((error: unknown) => (deviceId ? onRequest() : Promise.reject(error)))
-      .then(
-        (info) => {
-          if (!info) {
-            status.textContent = 'このブラウザではカメラを使えません。写真は仮想物体だけになります。';
-            return;
-          }
-          const { video, cameras } = info;
-          status.textContent = `カメラを使えます (${video.videoWidth}×${video.videoHeight})。`;
-          select.replaceChildren(...cameras.map((camera) => new Option(camera.label, camera.deviceId)));
-          select.value = info.deviceId;
-          preview.querySelector('video')?.remove();
-          preview.append(video);
-          preview.hidden = false;
-        },
-        (error: unknown) => {
-          console.error(error);
-          button.disabled = false;
-          status.textContent = `カメラを使えませんでした: ${error instanceof Error ? error.message : String(error)}`;
-        },
-      )
-      .finally(() => (select.disabled = false));
+  /** 最後に知らされた状態。ボタンが「止める」か「開始」かを決める */
+  let current: CameraState['kind'] = 'stopped';
+
+  const show = (state: CameraState): void => {
+    current = state.kind;
+    button.textContent = 'カメラを開始';
+    switch (state.kind) {
+      case 'requesting':
+        button.textContent = '開始をキャンセル';
+        status.textContent = 'カメラの映像を待っています…';
+        break;
+      case 'running': {
+        const { video, cameras, deviceId } = state.info;
+        button.textContent = 'カメラを止める';
+        status.textContent = `カメラを使えます (${video.videoWidth}×${video.videoHeight})。`;
+        select.replaceChildren(...cameras.map((camera) => new Option(camera.label, camera.deviceId)));
+        select.value = deviceId;
+        preview.append(video);
+        break;
+      }
+      case 'stopped':
+        status.textContent = STOP_MESSAGES[state.reason];
+        break;
+      case 'failed':
+        status.textContent = `カメラを使えませんでした: ${state.message}`;
+        break;
+      case 'unsupported':
+        status.textContent = 'このブラウザではカメラを使えません。写真は仮想物体だけになります。';
+        break;
+    }
+    button.disabled = current === 'unsupported';
+    select.disabled = current !== 'running';
+    preview.hidden = current !== 'running';
   };
-  // Quest のブラウザは、既定ではアバターを映す仮想カメラを選ぶ。名前からは見分けられないので、
-  // 一度選んでもらったカメラを覚えておき、次回からはそれを使う。
-  button.addEventListener('click', () => request(localStorage.getItem(CAMERA_KEY) ?? undefined));
-  select.addEventListener('change', () => {
-    localStorage.setItem(CAMERA_KEY, select.value);
-    request(select.value);
+
+  button.addEventListener('click', () => {
+    if (current === 'requesting' || current === 'running') {
+      control.stop();
+    } else {
+      control.start(readSavedCamera());
+    }
   });
+  select.addEventListener('change', () => {
+    saveCamera(select.value);
+    control.start(select.value);
+  });
+  return show;
 }
 
 /** 撮った写真を一覧に足す。押すと保存できる。 */

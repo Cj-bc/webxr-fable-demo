@@ -149,6 +149,25 @@ export interface CameraInfo {
   deviceId: string;
 }
 
+/**
+ * カメラを止めた理由。
+ * user: ページのボタンで止めた / session-end: MR を終えた / disabled: 「手で撮影」をオフにした /
+ * pagehide: ページを離れた / track-ended: 許可の取り消しなどで、映像のトラックが外から止められた
+ */
+export type CameraStopReason = 'user' | 'session-end' | 'disabled' | 'pagehide' | 'track-ended';
+
+/** カメラの状態。変わるたびに onCameraChange で知らせる。 */
+export type CameraState =
+  | { kind: 'requesting' }
+  | { kind: 'running'; info: CameraInfo }
+  | { kind: 'stopped'; reason: CameraStopReason }
+  | { kind: 'failed'; message: string }
+  | { kind: 'unsupported' };
+
+function stopStream(stream: MediaStream): void {
+  for (const track of stream.getTracks()) track.stop();
+}
+
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
 const _c = new THREE.Vector3();
@@ -195,16 +214,26 @@ function distanceToSegment(p: THREE.Vector3, a: THREE.Vector3, b: THREE.Vector3)
  * WebXR のフレームバッファにはパススルー映像が入っていない (合成は OS 側で行われる) ので、
  * 現実の景色は getUserMedia で取ったパススルーカメラの映像から、同じ範囲を切り出して下に敷く。
  * カメラを許可していない場合は、仮想物体だけの写真になる。
+ * カメラは MR の前に開始して MR 中も使い続け、MR の終了・「手で撮影」のオフ・ページを離れたときに止める。
  */
 export class HandFrame implements Feature {
   readonly name = 'handFrame';
-  enabled = true;
   /** 撮った写真。セッションを終えたあと、ページから保存できる。 */
   readonly photos: Photo[] = [];
   /** 撮った瞬間の通知 (効果音など) */
   onCapture: ((position: THREE.Vector3) => void) | null = null;
   /** 写真が画像ファイルになったときの通知 */
   onPhoto: ((photo: Photo) => void) | null = null;
+  /** カメラの状態が変わったときの通知。ページの表示はこれだけを見て合わせる。 */
+  onCameraChange: ((state: CameraState) => void) | null = null;
+
+  private _enabled = true;
+  private cameraRequest: AbortController | null = null;
+  private stream: MediaStream | null = null;
+  /** 使用中、または要求中のカメラ。おまかせなら undefined */
+  private cameraDeviceId: string | undefined;
+  /** 「手で撮影」のオフで止めたカメラ。オンに戻したら、これで再開する。再開するものがなければ null */
+  private resumeDeviceId: string | undefined | null = null;
 
   private readonly left = newFrameHand();
   private readonly right = newFrameHand();
@@ -300,6 +329,8 @@ export class HandFrame implements Feature {
     // 枠を作っている間は、親指の動きがつまみと判定されても道具を発動させない。
     app.tools.addInterceptor(() => this.active);
     app.onClear(() => this.clearWorldPhotos());
+    // bfcache に入るときも含め、ページを離れたらカメラを手放す。
+    window.addEventListener('pagehide', () => this.stopCamera('pagehide'));
     // 位置と大きさは他の物と一緒に保存し、画像は大きいので別に (IndexedDB) 持つ。
     app.persistence.register<SavedPhoto[]>('photos', {
       save: () =>
@@ -327,57 +358,142 @@ export class HandFrame implements Feature {
     return this.cameraReady && this.time - this.videoAdvancedAt < 1;
   }
 
+  /** 「手で撮影」が有効か。オフにすると、カメラも止める。 */
+  get enabled(): boolean {
+    return this._enabled;
+  }
+
+  set enabled(value: boolean) {
+    if (value === this._enabled) return;
+    this._enabled = value;
+    if (!value) this.stopCamera('disabled');
+    else if (this.resumeDeviceId !== null) void this.startCamera(this.resumeDeviceId);
+  }
+
   /**
    * カメラの映像を取り始める。許可のダイアログが出るので、MR を始める前に、
-   * ユーザー操作 (ボタンのクリック) の中で呼ぶ。
-   * deviceId を省くと、背面 (パススルー) のカメラらしいものを選ぶ。
+   * ユーザー操作 (ボタンのクリック) の中で呼ぶ。結果は onCameraChange で知らせ、この Promise は失敗しない。
+   * deviceId を省くと、背面 (パススルー) のカメラらしいものを選ぶ。覚えていたカメラが無ければ、おまかせで選び直す。
+   * 使っているカメラ・待っている要求は、新しい要求に置き換える。
    */
-  async startCamera(deviceId?: string): Promise<CameraInfo | null> {
+  async startCamera(deviceId?: string): Promise<void> {
+    // カメラを開始するのは撮るつもりがあるからなので、前回「手で撮影」をオフにしたまま終えていても、オンに戻す。
+    this._enabled = true;
+    this.resumeDeviceId = null;
+    // 前のカメラは置き換えるつもりで呼ばれているので、止まった通知は出さない。
+    this.abandonCamera();
     const media = navigator.mediaDevices;
-    if (!media?.getUserMedia) return null;
+    if (!media?.getUserMedia) {
+      this.onCameraChange?.({ kind: 'unsupported' });
+      return;
+    }
+    const request = new AbortController();
+    this.cameraRequest = request;
+    this.cameraDeviceId = deviceId;
+    this.onCameraChange?.({ kind: 'requesting' });
+    try {
+      const stopped = new Promise<void>((resolve) => {
+        request.signal.addEventListener('abort', () => resolve(), { once: true });
+      });
+      // 許可ダイアログや play() の完了を待たずに、停止操作を完了できるようにする。
+      await Promise.race([this.openCamera(media, request.signal, deviceId), stopped]);
+    } catch (error) {
+      if (request.signal.aborted) return;
+      this.abandonCamera();
+      console.error(error);
+      this.onCameraChange?.({ kind: 'failed', message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  private async openCamera(media: MediaDevices, signal: AbortSignal, deviceId?: string): Promise<void> {
     const size = { width: { ideal: 1280 }, height: { ideal: 960 } };
-    this.stopCamera();
-    let stream = await media.getUserMedia({
-      video: deviceId ? { deviceId: { exact: deviceId }, ...size } : { facingMode: 'environment', ...size },
-    });
-    // カメラの名前は、許可が下りたあとでないと読めない。
-    const cameras = (await media.enumerateDevices())
-      .filter((device) => device.kind === 'videoinput')
+    const acquire = async (id?: string): Promise<MediaStream> => {
+      const video = id ? { ...size, deviceId: { exact: id } } : { ...size, facingMode: 'environment' };
+      const stream = await media.getUserMedia({ video });
+      // getUserMedia 自体は中断できない。停止後に届いたトラックは、その要求だけで片付ける。
+      if (signal.aborted) {
+        stopStream(stream);
+        signal.throwIfAborted();
+      }
+      // 列挙や再生を待つ間も、stopCamera からすぐにトラックを止められるようにする。
+      this.stream = stream;
+      for (const track of stream.getTracks()) {
+        track.addEventListener('ended', () => {
+          if (this.stream === stream) this.stopCamera('track-ended');
+        }, { signal });
+      }
+      return stream;
+    };
+
+    let stream: MediaStream;
+    try {
+      stream = await acquire(deviceId);
+    } catch (error) {
+      signal.throwIfAborted();
+      // 覚えていたデバイスが使えないときだけ自動選択に戻す。許可の拒否では再要求しない。
+      const deviceUnavailable = error instanceof DOMException &&
+        (error.name === 'NotFoundError' || error.name === 'OverconstrainedError');
+      if (!deviceId || !deviceUnavailable) throw error;
+      deviceId = undefined;
+      stream = await acquire();
+    }
+    signal.throwIfAborted();
+    const devices = await media.enumerateDevices();
+    signal.throwIfAborted();
+    const cameras = devices.filter((device) => device.kind === 'videoinput')
       .map((device, i) => ({ deviceId: device.deviceId, label: device.label || `カメラ ${i + 1}` }));
     let current = stream.getVideoTracks()[0]?.getSettings().deviceId ?? '';
     if (!deviceId) {
-      // Quest のブラウザには、アバターを映す仮想カメラもある。facingMode の指定が効かずに
-      // そちらが選ばれた場合に備えて、名前からも背面のカメラを探す。
-      // Quest 3 では "camera 1, facing back" と "camera 2, facing back" の 2 つがあり、
-      // 画角と傾きの値は camera 2 で合わせてあるので、そちらを優先する。
-      const back =
-        cameras.find((camera) => /camera 2\b.*back/i.test(camera.label)) ??
+      // Quest の既定カメラはアバターを映すことがある。写真の画角と傾きを合わせた背面の camera 2 を優先する。
+      const back = cameras.find((camera) => /camera 2\b.*back/i.test(camera.label)) ??
         cameras.find((camera) => /back|rear|environment|passthrough/i.test(camera.label));
       if (back && back.deviceId !== current) {
-        for (const track of stream.getTracks()) track.stop();
-        stream = await media.getUserMedia({ video: { deviceId: { exact: back.deviceId }, ...size } });
+        stopStream(stream);
+        this.stream = null;
+        stream = await acquire(back.deviceId);
         current = back.deviceId;
       }
     }
-
+    signal.throwIfAborted();
     const video = document.createElement('video');
+    this.video = video;
     video.srcObject = stream;
     video.muted = true;
     video.playsInline = true;
     await video.play();
+    signal.throwIfAborted();
     const texture = new THREE.VideoTexture(video);
     // 色の変換は合成のシェーダーで自前で行うので、映像の値をそのまま読む。
     texture.colorSpace = THREE.NoColorSpace;
-    this.video = video;
     this.videoTexture = texture;
     this.compositeMaterial.uniforms.videoMap.value = texture;
-    return { video, cameras, deviceId: current };
+    this.cameraDeviceId = current;
+    this.onCameraChange?.({ kind: 'running', info: { video, cameras, deviceId: current } });
   }
 
-  private stopCamera(): void {
-    const stream = this.video?.srcObject as MediaStream | null | undefined;
-    for (const track of stream?.getTracks() ?? []) track.stop();
-    this.video?.remove();
+  /**
+   * 使用中のカメラを止め、待っている要求も取り消す。止めるものがあれば onCameraChange で知らせる。
+   * 「手で撮影」のオフで止めたときだけ、オンに戻したら再開できるよう覚えておく。
+   */
+  stopCamera(reason: CameraStopReason): void {
+    const using = this.cameraRequest !== null;
+    const resumable = this.resumeDeviceId !== null;
+    this.abandonCamera();
+    this.resumeDeviceId = reason === 'disabled' && using ? this.cameraDeviceId : null;
+    if (using || resumable) this.onCameraChange?.({ kind: 'stopped', reason });
+  }
+
+  /** 使用中のカメラを止め、待っている要求を取り消す。通知はしない。 */
+  private abandonCamera(): void {
+    this.cameraRequest?.abort();
+    this.cameraRequest = null;
+    if (this.stream) stopStream(this.stream);
+    this.stream = null;
+    if (this.video) {
+      this.video.pause();
+      this.video.srcObject = null;
+      this.video.remove();
+    }
     this.videoTexture?.dispose();
     this.video = null;
     this.videoTexture = null;
@@ -403,6 +519,8 @@ export class HandFrame implements Feature {
   end(): void {
     this.active = false;
     this.frame.visible = false;
+    // MR の外では写真を撮らないので、カメラを手放す。次の MR の前に、ページから開始し直してもらう。
+    this.stopCamera('session-end');
     // 次のセッションでは座標が変わるので、表示は片付ける。保存してあれば、そこから戻る。
     for (const photo of this.worldPhotos) this.removeWorldPhoto(photo, true);
     this.worldPhotos.length = 0;

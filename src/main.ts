@@ -41,7 +41,11 @@ placement.onPlaced = (position) => audio.chime(position);
 portal.onOpened = (position) => audio.chime(position);
 handFrame.onCapture = (position) => audio.click(position);
 handFrame.onPhoto = (photo) => addPhoto(photo.url, photo.name);
-setupCameraButton((deviceId) => handFrame.startCamera(deviceId));
+// カメラの状態は HandFrame が持ち、ページは知らされた状態を表示するだけにする。
+handFrame.onCameraChange = setupCameraButton({
+  start: (deviceId) => void handFrame.startCamera(deviceId),
+  stop: () => handFrame.stopCamera('user'),
+});
 
 const status = app.add(new StatusPanel(app));
 const describeHand = (hand: HandState): string => (!hand.tracked ? 'なし' : hand.isHand ? '素手' : 'コントローラー');
