@@ -8,11 +8,15 @@ const STORE = 'blobs';
 let database: Promise<IDBDatabase> | null = null;
 
 function open(): Promise<IDBDatabase> {
-  database ??= new Promise((resolve, reject) => {
+  database ??= new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open(DATABASE, 1);
     request.onupgradeneeded = () => request.result.createObjectStore(STORE);
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
+  }).catch((error) => {
+    // 一時的に開けなかったときは、次の呼び出しで再試行できるようにする。
+    database = null;
+    throw error;
   });
   return database;
 }
