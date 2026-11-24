@@ -3,8 +3,10 @@
   "checkpoint_id": "01M86P5E4YABFPV0JZW8Y8ZCWR",
   "strategy": "manual-commit",
   "branch": "master",
-  "checkpoints_count": 2,
-  "files_touched": null,
+  "checkpoints_count": 4,
+  "files_touched": [
+    "tests/handFrame_camera_test.ts"
+  ],
   "sessions": [
     {
       "metadata": "/0/metadata.json",
@@ -12,24 +14,31 @@
       "compact_transcript": "/0/transcript.jsonl",
       "content_hash": "/0/content_hash.txt",
       "prompt": "/0/prompt.txt"
+    },
+    {
+      "metadata": "/1/metadata.json",
+      "transcript": "/1/full.jsonl",
+      "compact_transcript": "/1/transcript.jsonl",
+      "content_hash": "/1/content_hash.txt",
+      "prompt": "/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 85044,
+    "input_tokens": 137180,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 4113152,
-    "output_tokens": 8129,
-    "api_call_count": 62
+    "cache_read_tokens": 4825088,
+    "output_tokens": 14223,
+    "api_call_count": 79
   },
   "redaction": {
-    "replacements": 199,
+    "replacements": 428,
     "layers": {
       "betterleaks": 0,
       "connection_string": 0,
       "credential_key": 0,
       "credential_value": 0,
       "credentialed_uri": 0,
-      "custom": 182,
+      "custom": 404,
       "entropy": 4,
       "key_context": 0,
       "provider_token": 0,
