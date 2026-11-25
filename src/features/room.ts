@@ -10,6 +10,20 @@ interface Built {
   colliderDesc: RAPIER.ColliderDesc | null;
   label: string;
   offset: THREE.Vector3;
+  /** 平面ローカルの XZ 平面上での輪郭の範囲 (平面のみ) */
+  bounds?: THREE.Box2;
+}
+
+/** Room.planeNear の結果。検出した平面のうち、点に最も近い 1 つ */
+export interface PlaneHit {
+  /** 点を面に垂直に落とした、面上の点 (ワールド座標) */
+  point: THREE.Vector3;
+  /** 点のある側を向いた、面の法線 (ワールド座標、単位ベクトル) */
+  normal: THREE.Vector3;
+  /** 点から面までの距離 (m、0 以上) */
+  distance: number;
+  /** 日本語のラベル (壁・机など) */
+  label: string;
 }
 
 interface Surface {
@@ -21,6 +35,7 @@ interface Surface {
   colliderOffset: THREE.Vector3;
   lastChangedTime: number;
   label: string;
+  bounds: THREE.Box2 | null;
 }
 
 /** Quest が返す semanticLabel の日本語名 */
@@ -67,6 +82,8 @@ const SHADOW_OPACITY = 0.3;
 const _position = new THREE.Vector3();
 const _quaternion = new THREE.Quaternion();
 const _offset = new THREE.Vector3();
+const _local = new THREE.Vector3();
+const _normal = new THREE.Vector3();
 
 /**
  * 平面検出 (plane-detection) とメッシュ検出 (mesh-detection) の結果を、
@@ -133,6 +150,34 @@ export class Room implements Feature {
     return best;
   }
 
+  /**
+   * 検出した平面のうち、点から maxDistance 以内で、点を面に落とした位置が輪郭の中 (margin だけ広げる) にあるもののうち、
+   * いちばん近い面を返す。無ければ null。天井は含めない。メッシュは対象外。
+   */
+  planeNear(point: THREE.Vector3, maxDistance: number, margin = 0): PlaneHit | null {
+    let best: PlaneHit | null = null;
+    for (const surface of this.planes.values()) {
+      if (!surface.bounds || surface.label === '天井') continue;
+      surface.root.updateWorldMatrix(true, false);
+      const local = surface.root.worldToLocal(_local.copy(point));
+      const distance = Math.abs(local.y);
+      if (distance > maxDistance || (best && distance >= best.distance)) continue;
+      const { min, max } = surface.bounds;
+      if (local.x < min.x - margin || local.x > max.x + margin || local.z < min.y - margin || local.z > max.y + margin) {
+        continue;
+      }
+      const side = local.y < 0 ? -1 : 1;
+      const normal = _normal.set(0, side, 0).applyQuaternion(surface.root.quaternion);
+      best = {
+        point: point.clone().addScaledVector(normal, -distance),
+        normal: normal.clone(),
+        distance,
+        label: surface.label,
+      };
+    }
+    return best;
+  }
+
   start(session: XRSession): void {
     this.session = session;
     this.fallbackFloor = this.app.physics.world.createCollider(
@@ -188,6 +233,7 @@ export class Room implements Feature {
           colliderOffset: built.offset,
           lastChangedTime: item.lastChangedTime,
           label: built.label,
+          bounds: built.bounds ?? null,
         };
         this.group.add(surface.root);
         surfaces.set(item, surface);
@@ -285,7 +331,7 @@ function buildPlane(plane: XRPlane): Built {
   )
     .setFriction(SURFACE_FRICTION)
     .setRestitution(SURFACE_RESTITUTION);
-  return { root, debug, colliderDesc, label: name, offset: center };
+  return { root, debug, colliderDesc, label: name, offset: center, bounds: new THREE.Box2(min, max) };
 }
 
 function buildMesh(mesh: XRMesh): Built {
