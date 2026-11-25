@@ -151,8 +151,9 @@ const create: InteractionFactory = (ctx) => {
       if (crack) crack.visible = false;
       return;
     }
-    const picture = photo.object.children[1] as THREE.Mesh<THREE.PlaneGeometry> | undefined;
-    if (!picture) return;
+    // 白い枠 (台紙) ごと裂くので、写真の絵ではなく台紙の大きさを基準にする
+    const mount = photo.object.children[0] as THREE.Mesh<THREE.PlaneGeometry> | undefined;
+    if (!mount) return;
     if (!crack) {
       crack = new THREE.Mesh(
         new THREE.PlaneGeometry(0.006, 1),
@@ -176,13 +177,14 @@ const create: InteractionFactory = (ctx) => {
       ctx.app.scene.add(crack);
     }
     const scale = photo.object.scale.x;
-    const length = picture.geometry.parameters.height * CRACK_MAX_RATIO * progress;
+    const mountHeight = mount.geometry.parameters.height;
+    const length = mountHeight * CRACK_MAX_RATIO * progress;
     crack.visible = true;
     crack.quaternion.copy(photo.object.quaternion);
     crack.scale.set(scale, length * scale, 1);
-    // 写真ローカルで、上端から下へ length だけ伸ばす。写真の面から少し手前に浮かせる。
+    // 写真ローカルで、台紙の上端から下へ length だけ伸ばす。写真の面から少し手前に浮かせる。
     crack.position
-      .set(0, (picture.geometry.parameters.height - length) / 2, 0.004)
+      .set(0, (mountHeight - length) / 2, 0.004)
       .multiplyScalar(scale)
       .applyQuaternion(photo.object.quaternion)
       .add(photo.object.position);
