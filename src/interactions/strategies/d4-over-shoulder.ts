@@ -5,6 +5,9 @@ import type { InteractionFactory } from '../types';
 
 /**
  * D4 肩越しに後ろへ放る。持っている物を肩越しに頭の後ろへ持っていって離すと、見えないゴミ箱に入って消える。
+ *
+ * 位置は物の原点ではなく、持っている手 (HandState.grabPosition) で判定する。
+ * 線は原点がワールド原点のままで、写真は端を持つと中心が手から離れるため、物の原点では頭の後ろに届かない。
  */
 
 /** 頭の中心から見て、これ以上後ろ (頭の水平な前方向と逆) にあること (m)。頭の半径が約 0.1 m なので、耳の後ろまで回したら後ろとみなす。 */
@@ -159,7 +162,7 @@ const create: InteractionFactory = (ctx) => {
 
   const removeWithFeedback = (hand: HandState, items: readonly Item[]): void => {
     // 視界の外なので、音で知らせる。音の位置は、消える物のある (頭の後ろの) 場所。
-    const position = items[0].object.position.clone();
+    const position = hand.grabPosition.clone();
     ctx.audio.trash(position);
     hand.pulse(DELETE_INTENSITY, DELETE_MS);
     for (const item of items) ctx.items.remove(item);
@@ -177,8 +180,8 @@ const create: InteractionFactory = (ctx) => {
       (item) =>
         ctx.items.holdersOf(item).length === 0 &&
         (deliberate
-          ? isOverShoulder(head, headQuaternion, item.object.position)
-          : isBackwardThrow(head, headQuaternion, item.object.position, hand.velocity)),
+          ? isOverShoulder(head, headQuaternion, hand.grabPosition)
+          : isBackwardThrow(head, headQuaternion, hand.grabPosition, hand.velocity)),
     );
     if (targets.length === 0) return;
 
@@ -192,8 +195,8 @@ const create: InteractionFactory = (ctx) => {
       lost.delete(hand);
       lastTrackedAt.set(hand, now);
       yawWhileTracked.set(hand, headYaw(headQuaternion));
-      nearBeforeLoss.set(hand, single && isOverShoulder(head, headQuaternion, held[0].object.position, NEAR_BEHIND_MIN));
-      if (single && isBackwardThrow(head, headQuaternion, held[0].object.position, hand.velocity, FAST_NEAR_BEHIND_MIN)) {
+      nearBeforeLoss.set(hand, single && isOverShoulder(head, headQuaternion, hand.grabPosition, NEAR_BEHIND_MIN));
+      if (single && isBackwardThrow(head, headQuaternion, hand.grabPosition, hand.velocity, FAST_NEAR_BEHIND_MIN)) {
         fastNearAt.set(hand, now);
       }
       return false;
@@ -251,7 +254,7 @@ const create: InteractionFactory = (ctx) => {
         const inZone =
           held.length > 0 &&
           held.every((item) => ctx.items.holdersOf(item).length === 1) &&
-          isOverShoulder(head, headQuaternion, held[0].object.position);
+          isOverShoulder(head, headQuaternion, hand.grabPosition);
         const state = zone.get(hand);
         if (!inZone) {
           zone.delete(hand);
@@ -263,7 +266,7 @@ const create: InteractionFactory = (ctx) => {
           // 素手は振動しないので、領域に着いたことを音で知らせる (入るたびに 1 回。縁での出入りは間隔を空ける)。
           if (now - (lastCue.get(hand) ?? -Infinity) >= CUE_COOLDOWN) {
             lastCue.set(hand, now);
-            ctx.audio.zoneCue(held[0].object.position.clone());
+            ctx.audio.zoneCue(hand.grabPosition.clone());
           }
         } else if (now - state.since >= DWELL_SEC && now - state.lastHint >= HINT_INTERVAL) {
           // 「ここで離すと消える」状態になってから、弱い振動を繰り返す。

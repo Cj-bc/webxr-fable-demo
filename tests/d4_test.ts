@@ -55,6 +55,8 @@ function setup(isHand: boolean) {
   const hand = {
     isHand,
     tracked: true,
+    // ボールのように、つかんだ位置と物の原点が同じ物として扱う。原点が離れた物は個別のテストで変える。
+    grabPosition: item.object.position,
     velocity: new THREE.Vector3(),
     pulses: 0,
     pulse() {
@@ -269,6 +271,26 @@ Deno.test('領域に入った合図の音は、入るたびに 1 回だけ鳴る
   s.item.object.position.set(0.15, 1.5, 0.4);
   for (let t = 2; t <= 2.3; t += 0.05) s.frame(t);
   assert.equal(s.cues.length, 2);
+});
+
+// --- 原点が手から離れた物 (線・大きな写真) も、手の位置で判定する ---
+
+Deno.test('原点がワールド原点の線でも、手を頭の後ろで止めて離すと消える', () => {
+  const s = setup(false);
+  s.hand.grabPosition = new THREE.Vector3(0.15, 1.5, 0.4);
+  s.item.object.position.set(0, 0, 0);
+  for (let t = 0; t <= 0.6; t += 0.05) s.frame(t);
+  s.release();
+  assert.equal(s.removed.length, 1);
+});
+
+Deno.test('原点が頭の後ろにあっても、手が体の前なら消えない', () => {
+  const s = setup(false);
+  s.hand.grabPosition = new THREE.Vector3(0, 1.4, -0.4);
+  s.item.object.position.set(0.15, 1.5, 0.4);
+  for (let t = 0; t <= 0.6; t += 0.05) s.frame(t);
+  s.release();
+  assert.equal(s.removed.length, 0);
 });
 
 Deno.test('勢いよく後ろへ離す判定 (純粋関数)', () => {
