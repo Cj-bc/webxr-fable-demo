@@ -63,6 +63,7 @@ export class Menu implements Feature {
   private placedInFront = false;
   private palmUp = false;
   private readonly pokeArmed = new Map<HandState, boolean>();
+  private readonly suppressors: (() => boolean)[] = [];
 
   constructor(private readonly app: App) {
     app.tools.onChange = () => {
@@ -85,6 +86,11 @@ export class Menu implements Feature {
 
   addAction(label: string, run: () => void): void {
     this.addItem('action', label, () => false, run);
+  }
+
+  /** 1 つでも true を返すものがあれば、左手のひらを上にしてもメニューを出さない (別の UI がその手を使うとき)。 */
+  addSuppressor(suppressor: () => boolean): void {
+    this.suppressors.push(suppressor);
   }
 
   start(): void {
@@ -181,7 +187,7 @@ export class Menu implements Feature {
       mesh.position.y += HAND_OFFSET + panel.height / 2;
       this.palmUp = left.palmNormal.y > (this.palmUp ? PALM_UP_HIDE : PALM_UP_SHOW);
       // 左手で物をつかんでいる間は邪魔なので隠す。
-      mesh.visible = this.palmUp && !left.selecting && !left.squeezing;
+      mesh.visible = this.palmUp && !left.selecting && !left.squeezing && !this.suppressors.some((s) => s());
       this.placedInFront = true;
     } else if (!this.placedInFront) {
       _forward.set(0, 0, -1).applyQuaternion(ctx.headQuaternion).setY(0).normalize();
