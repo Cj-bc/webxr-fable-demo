@@ -55,6 +55,28 @@ export function alignedQuaternion(
   return out.copy(photoQuaternion).premultiply(_align);
 }
 
+/**
+ * 1 フレーム分の「貼るか」の判定 (純粋な計算)。
+ * - lockAt: その写真にかかっている鍵 (貼った場所)。REARM_DISTANCE 離れるまで貼らない。
+ * - firstSeen: 持たれて最初のフレーム。すでに面に接しているなら (貼られた写真を取ったとき、持ち直したとき) 鍵をかけて貼らない。
+ * - distance: 写真から面までの距離。面に沿っていない・面が無いときは null。
+ * 返す lock は次のフレームの鍵 (null は鍵なし)。stamp が true なら、いま貼る (lock は貼った位置)。
+ */
+export function stampStep(
+  lockAt: THREE.Vector3 | null,
+  firstSeen: boolean,
+  position: THREE.Vector3,
+  distance: number | null,
+): { lock: THREE.Vector3 | null; stamp: boolean } {
+  if (lockAt) {
+    if (_lockOffset.copy(position).sub(lockAt).length() < REARM_DISTANCE) return { lock: lockAt, stamp: false };
+    lockAt = null;
+  }
+  const near = distance !== null && distance <= STAMP_DISTANCE;
+  if (!near) return { lock: null, stamp: false };
+  return { lock: position.clone(), stamp: !firstSeen };
+}
+
 /** 写真の板の大きさ (m、持って拡大縮小した分を含む)。 */
 function sizeOf(item: Item): { width: number; height: number } {
   const picture = item.object.children.find(
@@ -69,6 +91,8 @@ function sizeOf(item: Item): { width: number; height: number } {
 const create: InteractionFactory = (ctx) => {
   /** 貼った直後の写真と、貼った場所。写真がそこから REARM_DISTANCE 離れるまで貼れない。 */
   const locks = new Map<Item, THREE.Vector3>();
+  /** いま持たれていて、すでに 1 フレーム以上見た写真 */
+  const known = new Set<Item>();
   let preview: THREE.Group | null = null;
   let previewFill: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> | null = null;
   let previewLine: THREE.LineLoop<THREE.BufferGeometry, THREE.LineBasicMaterial> | null = null;
@@ -143,6 +167,7 @@ const create: InteractionFactory = (ctx) => {
     category: 'duplicate',
     disable() {
       locks.clear();
+      known.clear();
       disposePreview();
     },
     update() {
@@ -150,30 +175,34 @@ const create: InteractionFactory = (ctx) => {
       const photos = heldPhotos();
       for (const lock of [...locks.keys()]) if (!ctx.items.all.includes(lock)) locks.delete(lock);
 
+      // 持たれなくなった写真は忘れる。持ち直したときは「持った直後」として扱う。
+      for (const photo of [...known]) if (!photos.includes(photo)) known.delete(photo);
+
       let previewed = false;
       for (const photo of photos) {
         const position = photo.object.position;
-        const lockAt = locks.get(photo);
-        if (lockAt) {
-          if (_lockOffset.copy(position).sub(lockAt).length() < REARM_DISTANCE) continue;
-          locks.delete(photo);
-        }
+        const firstSeen = !known.has(photo);
+        known.add(photo);
         const hit = ctx.room.planeNear(position, PREVIEW_DISTANCE, PLANE_MARGIN);
-        if (!hit || !isAlignedToPlane(photo.object.quaternion, hit.normal)) continue;
+        const aligned = !!hit && isAlignedToPlane(photo.object.quaternion, hit.normal);
+        const step = stampStep(locks.get(photo) ?? null, firstSeen, position, hit && aligned ? hit.distance : null);
+        if (step.lock) locks.set(photo, step.lock);
+        else locks.delete(photo);
+        if (!hit || !aligned || step.lock && !step.stamp) continue;
 
         const pose = alignedQuaternion(photo.object.quaternion, hit.normal, new THREE.Quaternion());
         const stampAt = hit.point.clone().addScaledVector(hit.normal, STAMP_LIFT);
-        const near = hit.distance <= STAMP_DISTANCE;
         if (!previewed) {
-          showPreview(stampAt, pose, sizeOf(photo), near);
+          showPreview(stampAt, pose, sizeOf(photo), hit.distance <= STAMP_DISTANCE);
           previewed = true;
         }
-        if (!near) continue;
+        if (!step.stamp) continue;
 
         // 押し当てた。複製を面に置き、手には元の写真を残す。複製できなくても、連打しないよう鍵はかける。
-        locks.set(photo, position.clone());
         const copy = ctx.items.duplicate(photo);
         if (!copy) continue;
+        // 貼った写真にも同じ鍵をかける。かけないと、取ろうとして持った瞬間に面に接しているので、また貼ってしまう。
+        locks.set(copy, stampAt.clone());
         copy.setPose(stampAt, pose);
         ctx.audio.chime(stampAt);
         for (const hand of ctx.items.holdersOf(photo)) hand.pulse(STAMP_PULSE.intensity, STAMP_PULSE.ms);
