@@ -71,6 +71,53 @@ export class Audio implements Feature {
     this.play(position, { from: 990, to: 990, duration: 0.3, volume: 0.3, delay: 0.09 });
   }
 
+  /** 持っている物が「消える領域」に入った合図。小さく柔らかい音 */
+  zoneCue(position: THREE.Vector3): void {
+    this.play(position, { from: 520, to: 620, duration: 0.09, volume: 0.12, type: 'triangle' });
+  }
+
+  /** 物をゴミ箱へ投げ込んで消える音。ノイズのひゅっという音のあとに、低いどすんという音が続く。 */
+  trash(position: THREE.Vector3): void {
+    this.playNoise(position, 0.16, 0.3);
+    this.play(position, { from: 150, to: 45, duration: 0.28, volume: 0.6, delay: 0.13 });
+    this.play(position, { from: 300, to: 120, duration: 0.1, volume: 0.25, type: 'triangle', delay: 0.13 });
+  }
+
+  /** 高い方から低い方へ絞られるノイズ (風を切る音) */
+  private playNoise(position: THREE.Vector3, duration: number, volume: number): void {
+    const context = this.context;
+    if (!context || context.state !== 'running') return;
+    const length = Math.ceil(context.sampleRate * duration);
+    const buffer = context.createBuffer(1, length, context.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < length; i++) data[i] = Math.random() * 2 - 1;
+    const start = context.currentTime;
+    const source = new AudioBufferSourceNode(context, { buffer });
+    const filter = new BiquadFilterNode(context, { type: 'bandpass', Q: 1.2, frequency: 2500 });
+    filter.frequency.exponentialRampToValueAtTime(500, start + duration);
+    const gain = new GainNode(context, { gain: 0 });
+    gain.gain.setValueAtTime(0, start);
+    gain.gain.linearRampToValueAtTime(volume, start + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+    const panner = new PannerNode(context, {
+      panningModel: 'HRTF',
+      distanceModel: 'inverse',
+      refDistance: 0.6,
+      rolloffFactor: 1.2,
+      positionX: position.x,
+      positionY: position.y,
+      positionZ: position.z,
+    });
+    source.connect(filter).connect(gain).connect(panner).connect(context.destination);
+    source.onended = () => {
+      source.disconnect();
+      filter.disconnect();
+      gain.disconnect();
+      panner.disconnect();
+    };
+    source.start(start);
+  }
+
   private play(position: THREE.Vector3, tone: Tone): void {
     const context = this.context;
     if (!context || context.state !== 'running') return;
