@@ -119,6 +119,20 @@ export class Room implements Feature {
     return false;
   }
 
+  /**
+   * 床として検出された平面のうち、高さが y にいちばん近いものの高さ (m)。床が検出されていなければ null。
+   * 平面は水平なので、平面の原点の y をそのまま床の高さとして使える。
+   */
+  floorHeightNear(y: number): number | null {
+    let best: number | null = null;
+    for (const surface of this.planes.values()) {
+      if (surface.label !== '床') continue;
+      const height = surface.root.position.y;
+      if (best === null || Math.abs(height - y) < Math.abs(best - y)) best = height;
+    }
+    return best;
+  }
+
   start(session: XRSession): void {
     this.session = session;
     this.fallbackFloor = this.app.physics.world.createCollider(
