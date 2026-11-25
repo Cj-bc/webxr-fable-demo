@@ -75,6 +75,15 @@ export class Portal implements Feature {
     return this.portals.length;
   }
 
+  /** 開いている穴の、中心 (面から浮かせた位置)・手前向きの法線・半径 (読み取り専用。呼ぶたびに作り直す) */
+  get openings(): readonly { position: THREE.Vector3; normal: THREE.Vector3; radius: number }[] {
+    return this.portals.map((portal) => {
+      const normal = FORWARD.clone().applyQuaternion(portal.root.quaternion);
+      const position = portal.root.position.clone().addScaledVector(normal, SURFACE_OFFSET);
+      return { position, normal, radius: RADIUS };
+    });
+  }
+
   end(): void {
     this.clear();
   }
