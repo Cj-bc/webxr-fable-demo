@@ -1,0 +1,14 @@
+{
+  "tool_use_id": "toolu_01KjHrAYvBmuJTykcMWThBKG",
+  "agent_id": "a3ef54f9af7814739",
+  "task_description": "Implement M2 radial menu",
+  "token_usage": {
+    "input_tokens": 32,
+    "cache_creation_tokens": 71603,
+    "cache_read_tokens": 689742,
+    "output_tokens": 4391,
+    "api_call_count": 14
+  },
+  "started_at": "2026-11-25T13:18:55.28828+09:00",
+  "completed_at": "2026-11-25T13:19:08.8069129+09:00"
+}

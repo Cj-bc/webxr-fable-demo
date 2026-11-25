@@ -1,0 +1,14 @@
+{
+  "tool_use_id": "toolu_01RFpVUqqBfMpAavVKS77s4f",
+  "agent_id": "a08305b4bcfe1cc26",
+  "task_description": "Implement M1 context menu",
+  "token_usage": {
+    "input_tokens": 32,
+    "cache_creation_tokens": 51808,
+    "cache_read_tokens": 830261,
+    "output_tokens": 9999,
+    "api_call_count": 15
+  },
+  "started_at": "2026-11-25T13:18:56.0530762+09:00",
+  "completed_at": "2026-11-25T13:19:09.9259545+09:00"
+}

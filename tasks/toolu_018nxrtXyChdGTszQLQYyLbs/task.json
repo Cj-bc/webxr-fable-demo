@@ -1,0 +1,14 @@
+{
+  "tool_use_id": "toolu_018nxrtXyChdGTszQLQYyLbs",
+  "agent_id": "a0abf73aed4ebc566",
+  "task_description": "Implement U2 trash bin",
+  "token_usage": {
+    "input_tokens": 24,
+    "cache_creation_tokens": 61568,
+    "cache_read_tokens": 500116,
+    "output_tokens": 4341,
+    "api_call_count": 11
+  },
+  "started_at": "2026-11-25T13:18:55.5510059+09:00",
+  "completed_at": "2026-11-25T13:19:07.520118+09:00"
+}

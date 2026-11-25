@@ -1,0 +1,14 @@
+{
+  "tool_use_id": "toolu_014DZ2VSnzErqSM4GKjRPVkY",
+  "agent_id": "ad840f77c011bde8a",
+  "task_description": "Implement D4 toss behind",
+  "token_usage": {
+    "input_tokens": 28,
+    "cache_creation_tokens": 50132,
+    "cache_read_tokens": 673579,
+    "output_tokens": 9433,
+    "api_call_count": 13
+  },
+  "started_at": "2026-11-25T13:18:56.3108913+09:00",
+  "completed_at": "2026-11-25T13:19:09.1335167+09:00"
+}

@@ -1,0 +1,14 @@
+{
+  "tool_use_id": "toolu_01XLuVpVC2XSgLuKPH3WLJ4h",
+  "agent_id": "a6e7e7f97019f069c",
+  "task_description": "Implement C2 stamp duplicate",
+  "token_usage": {
+    "input_tokens": 30,
+    "cache_creation_tokens": 69093,
+    "cache_read_tokens": 706309,
+    "output_tokens": 7635,
+    "api_call_count": 14
+  },
+  "started_at": "2026-11-25T13:18:55.696512+09:00",
+  "completed_at": "2026-11-25T13:19:08.7944685+09:00"
+}

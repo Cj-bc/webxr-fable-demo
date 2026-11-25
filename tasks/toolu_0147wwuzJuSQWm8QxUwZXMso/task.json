@@ -1,0 +1,14 @@
+{
+  "tool_use_id": "toolu_0147wwuzJuSQWm8QxUwZXMso",
+  "agent_id": "aaf58a3deaf607b71",
+  "task_description": "Implement D1 shrink delete",
+  "token_usage": {
+    "input_tokens": 26,
+    "cache_creation_tokens": 45734,
+    "cache_read_tokens": 600049,
+    "output_tokens": 9469,
+    "api_call_count": 12
+  },
+  "started_at": "2026-11-25T13:18:56.31037+09:00",
+  "completed_at": "2026-11-25T13:19:10.5673146+09:00"
+}
