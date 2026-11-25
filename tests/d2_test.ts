@@ -71,7 +71,7 @@ function setup() {
   } as unknown as InteractionContext;
   const interaction = create(ctx);
   const frame = (dt: number) => interaction.update?.({ dt } as FrameContext);
-  return { left, right, item, removed, frame, release: (hand: HandState) => (holders = holders.filter((h) => h !== hand)) };
+  return { scene, left, right, item, removed, frame, release: (hand: HandState) => (holders = holders.filter((h) => h !== hand)) };
 }
 
 Deno.test('素手の速さ (相対 0.9 m/s) を数フレーム続けると、写真が破れて消える', () => {
@@ -100,4 +100,30 @@ Deno.test('猶予を過ぎて、片手だけになった写真は破れない', 
   t.right.velocity.set(0, 0, -1);
   for (let i = 0; i < 30; i++) t.frame(1 / 72);
   assert.deepEqual(t.removed, []);
+});
+
+/** シーンにある、写真以外の板 (裂け目) */
+const findCrack = (scene: THREE.Scene) =>
+  scene.children.find((o): o is THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> => (o as THREE.Mesh).isMesh);
+
+Deno.test('破れそうな間の裂け目は、描く先を alpha 0 にする穴で、やめれば隠れる', () => {
+  const t = setup();
+  // 破る閾値には届かない、破れかけの動き (相対 0.6 m/s)
+  t.left.velocity.set(0, 0, 0.3);
+  t.right.velocity.set(0, 0, -0.3);
+  for (let i = 0; i < 4; i++) t.frame(1 / 72);
+  const crack = findCrack(t.scene);
+  assert.ok(crack);
+  assert.equal(crack.visible, true);
+  const m = crack.material;
+  assert.equal(m.blending, THREE.CustomBlending);
+  for (const factor of [m.blendSrc, m.blendDst, m.blendSrcAlpha, m.blendDstAlpha]) {
+    assert.equal(factor, THREE.ZeroFactor);
+  }
+  assert.deepEqual(t.removed, []);
+  // 動きをやめると裂け目は消える (写真自体には何も書き込んでいない)
+  t.left.velocity.set(0, 0, 0);
+  t.right.velocity.set(0, 0, 0);
+  for (let i = 0; i < 40; i++) t.frame(1 / 72);
+  assert.equal(crack.visible, false);
 });

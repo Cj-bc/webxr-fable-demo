@@ -156,8 +156,23 @@ const create: InteractionFactory = (ctx) => {
     if (!crack) {
       crack = new THREE.Mesh(
         new THREE.PlaneGeometry(0.006, 1),
-        new THREE.MeshBasicMaterial({ color: 0x222222, side: THREE.DoubleSide }),
+        // 裂け目は「穴」にする。MR のパススルーは、フレームバッファの alpha が 0 の所に映るので、
+        // 写真の上に色を載せる代わりに、描く先の色と alpha を 0 に上書きする (src と dst の係数をどちらも 0 にする)。
+        // 写真のテクスチャは触らないので、破るのをやめて裂け目を隠せば、元の見た目にそのまま戻る。
+        new THREE.MeshBasicMaterial({
+          side: THREE.DoubleSide,
+          transparent: true,
+          depthWrite: false,
+          blending: THREE.CustomBlending,
+          blendEquation: THREE.AddEquation,
+          blendSrc: THREE.ZeroFactor,
+          blendDst: THREE.ZeroFactor,
+          blendSrcAlpha: THREE.ZeroFactor,
+          blendDstAlpha: THREE.ZeroFactor,
+        }),
       );
+      // 透明な物の中では、写真より後に描く
+      crack.renderOrder = 10;
       ctx.app.scene.add(crack);
     }
     const scale = photo.object.scale.x;
