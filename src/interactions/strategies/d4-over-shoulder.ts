@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { HandState } from '../../input';
+import type { Item } from '../../items';
 import type { InteractionFactory } from '../types';
 
 /**
@@ -48,6 +49,7 @@ export function isOverShoulder(
   headPosition: THREE.Vector3,
   headQuaternion: THREE.Quaternion,
   position: THREE.Vector3,
+  behindMin = BEHIND_MIN,
 ): boolean {
   _forward.set(0, 0, -1).applyQuaternion(headQuaternion);
   _forward.y = 0;
@@ -56,7 +58,37 @@ export function isOverShoulder(
   _forward.divideScalar(length);
   _offset.copy(position).sub(headPosition);
   const behind = -(_offset.x * _forward.x + _offset.z * _forward.z);
-  return behind >= BEHIND_MIN && _offset.length() <= REACH_MAX && _offset.y >= -SHOULDER_DROP;
+  return behind >= behindMin && _offset.length() <= REACH_MAX && _offset.y >= -SHOULDER_DROP;
+}
+
+/**
+ * 素手の対策。素手は頭の後ろに回すとヘッドセットのカメラに映らず、認識が切れる (HandState.tracked が false)。
+ * 認識が切れている間は物が動かず、つまみの終わりも手が前に戻るまで来ないので、離した位置が領域に届かない。
+ * そこで、領域の手前 (耳の横から肩の上あたり) にある物を持ったまま認識が切れ、そのまま一定時間戻らなければ、
+ * 後ろへ回して離したとみなして消す。後ろ向きの距離の下限を緩めるのは、認識が切れる直前の位置が手前になるため。
+ */
+export const NEAR_BEHIND_MIN = -0.1;
+/** 認識が切れてから消すまでの時間 (秒)。ちらつきや一瞬の隠れを除く。 */
+export const LOST_SEC = 0.35;
+/** 認識が切れている間に頭の向き (水平) がこれ以上回ったら、振り向いて見えなくなっただけとみなして消さない (ラジアン、約 35 度)。 */
+export const LOST_YAW_MAX = 0.6;
+
+/** 水平な向きの角度の差 (-PI..PI) の絶対値 */
+export function yawDelta(a: number, b: number): number {
+  const d = Math.abs(a - b) % (Math.PI * 2);
+  return d > Math.PI ? Math.PI * 2 - d : d;
+}
+
+/** 頭の水平な前方向の角度 (ラジアン)。真上・真下を向いて決まらないときは null */
+export function headYaw(headQuaternion: THREE.Quaternion): number | null {
+  _forward.set(0, 0, -1).applyQuaternion(headQuaternion);
+  if (Math.hypot(_forward.x, _forward.z) < MIN_FORWARD_HORIZONTAL) return null;
+  return Math.atan2(_forward.x, _forward.z);
+}
+
+/** 認識が切れる直前に物が領域の手前にあり、切れたまま十分たち、その間に頭が大きく回っていなければ、消す。 */
+export function shouldDeleteOnTrackingLoss(wasNear: boolean, lostSec: number, headYawChange: number): boolean {
+  return wasNear && lostSec >= LOST_SEC && headYawChange <= LOST_YAW_MAX;
 }
 
 /** 領域に入ってから離すまでの時間と手の速さが、「わざと離した」といえるか */
@@ -71,6 +103,19 @@ const create: InteractionFactory = (ctx) => {
   /** 手ごとの、領域に入った時刻と、最後に知らせの振動を出した時刻 */
   const zone = new Map<HandState, { since: number; lastHint: number }>();
   let now = 0;
+  /** 素手: 認識が切れる直前に、持っている物が領域の手前にあったか */
+  const nearBeforeLoss = new Map<HandState, boolean>();
+  /** 素手: 認識が切れた時刻と、そのときの頭の向き */
+  const lost = new Map<HandState, { since: number; yaw: number | null }>();
+
+  const removeWithFeedback = (hand: HandState, items: readonly Item[]): void => {
+    // 視界の外なので、音で知らせる。音の位置は、消える物のある (頭の後ろの) 場所。
+    const position = items[0].object.position.clone();
+    ctx.audio.click(position);
+    ctx.audio.chime(position);
+    hand.pulse(DELETE_INTENSITY, DELETE_MS);
+    for (const item of items) ctx.items.remove(item);
+  };
 
   ctx.onItems('release', ({ hand, items }) => {
     const state = zone.get(hand);
@@ -84,13 +129,35 @@ const create: InteractionFactory = (ctx) => {
     );
     if (targets.length === 0) return;
 
-    // 視界の外なので、音で知らせる。音の位置は、消える物のある (頭の後ろの) 場所。
-    const position = targets[0].object.position.clone();
-    ctx.audio.click(position);
-    ctx.audio.chime(position);
-    hand.pulse(DELETE_INTENSITY, DELETE_MS);
-    for (const item of targets) ctx.items.remove(item);
+    removeWithFeedback(hand, targets);
   });
+
+  /** 素手の認識切れによる削除。消したら true */
+  const handleHandLoss = (hand: HandState, held: Item[]): boolean => {
+    const single = held.length > 0 && held.every((item) => ctx.items.holdersOf(item).length === 1);
+    if (hand.tracked) {
+      lost.delete(hand);
+      nearBeforeLoss.set(hand, single && isOverShoulder(head, headQuaternion, held[0].object.position, NEAR_BEHIND_MIN));
+      return false;
+    }
+    if (!single || !nearBeforeLoss.get(hand)) {
+      lost.delete(hand);
+      return false;
+    }
+    let state = lost.get(hand);
+    if (!state) {
+      state = { since: now, yaw: headYaw(headQuaternion) };
+      lost.set(hand, state);
+    }
+    const yaw = headYaw(headQuaternion);
+    const change = state.yaw === null || yaw === null ? 0 : yawDelta(state.yaw, yaw);
+    if (!shouldDeleteOnTrackingLoss(true, now - state.since, change)) return false;
+    lost.delete(hand);
+    nearBeforeLoss.delete(hand);
+    zone.delete(hand);
+    removeWithFeedback(hand, held);
+    return true;
+  };
 
   return {
     id: 'D4',
@@ -98,6 +165,8 @@ const create: InteractionFactory = (ctx) => {
     category: 'delete',
     disable() {
       zone.clear();
+      nearBeforeLoss.clear();
+      lost.clear();
       hasHead = false;
     },
     update(frame) {
@@ -107,6 +176,7 @@ const create: InteractionFactory = (ctx) => {
       hasHead = true;
       for (const hand of ctx.app.input.hands) {
         const held = ctx.items.heldBy(hand);
+        if (hand.isHand && handleHandLoss(hand, held)) continue;
         // 1 本の手だけで持っている物が領域にあるときだけ、知らせる。
         const inZone =
           held.length > 0 &&
