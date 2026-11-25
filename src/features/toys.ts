@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { App, Feature, FrameContext } from '../app';
 import type { HandState } from '../input';
+import type { Item } from '../items';
 import { GROUP_ALL, GROUP_HAND, RAPIER, interactionGroups } from '../physics';
 import type { SavedPose } from './persistence';
 
@@ -30,6 +31,8 @@ interface Toy {
   /** 手から離れたばかりで、まだ手の当たり判定と重なっているので、手とはぶつからないようにしている */
   passingHands: boolean;
   lastImpactTime: number;
+  /** 削除・複製などの操作から見た、この物 */
+  item: Item;
 }
 
 interface SavedToy {
@@ -205,7 +208,7 @@ export class Toys implements Feature {
         .setAngularDamping(0.4)
         .setSleeping(sleeping),
     );
-    const toy: Toy = {
+    const toy = {
       kind,
       mesh,
       body,
@@ -217,10 +220,45 @@ export class Toys implements Feature {
       twoHand: null,
       passingHands: false,
       lastImpactTime: 0,
-    };
+    } as Omit<Toy, 'item'> as Toy;
+    toy.item = this.createItem(toy);
     this.byCollider.set(toy.collider.handle, toy);
     this.toys.push(toy);
+    this.app.items.register(toy.item);
     return toy;
+  }
+
+  private createItem(toy: Toy): Item {
+    return {
+      kind: toy.kind,
+      object: toy.mesh,
+      remove: () => {
+        if (this.toys.includes(toy)) this.remove(toy);
+      },
+      duplicate: () => {
+        if (this.toys.length >= MAX_TOYS) return null;
+        const mesh = createMesh(toy.kind, toy.mesh.material.color.clone());
+        mesh.position.copy(toy.mesh.position);
+        mesh.quaternion.copy(toy.mesh.quaternion);
+        mesh.scale.setScalar(toy.scale);
+        // 元の物と重なって現れるので、眠らせておく。動かすのは呼び出し側 (setPose か grab)。
+        return this.addToy(toy.kind, mesh, true).item;
+      },
+      setPose: (position, quaternion) => {
+        if (toy.holders.length > 0) return;
+        toy.mesh.position.copy(position);
+        toy.mesh.quaternion.copy(quaternion);
+        toy.body.setTranslation(position, true);
+        toy.body.setRotation(quaternion, true);
+        toy.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+        toy.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+      },
+      grab: (hand, button) => {
+        if (!hand.tracked || this.held.has(hand) || toy.holders.length >= 2) return false;
+        this.grab(toy, hand, button);
+        return true;
+      },
+    };
   }
 
   private tryGrab(hand: HandState, button: GrabButton): boolean {
@@ -237,6 +275,7 @@ export class Toys implements Feature {
       }
     }
     if (!nearest) return false;
+    if (this.app.items.interceptGrab(hand, nearest.item, button)) return true;
     this.grab(nearest, hand, button);
     return true;
   }
@@ -251,6 +290,7 @@ export class Toys implements Feature {
     this.held.set(hand, { toy, button });
     this.beginHold(toy);
     hand.pulse(0.5, 25);
+    this.app.items.notifyGrab(hand, [toy.item], button);
   }
 
   private release(hand: HandState, button: GrabButton): void {
@@ -263,16 +303,18 @@ export class Toys implements Feature {
 
     if (toy.holders.length > 0) {
       this.beginHold(toy);
-      return;
+    } else {
+      // 手を離した瞬間の手の速度を、そのまま物の初速にする。
+      toy.body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
+      toy.body.setTranslation(toy.mesh.position, true);
+      toy.body.setRotation(toy.mesh.quaternion, true);
+      toy.body.setLinvel(hand.velocity, true);
+      toy.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+      this.setPassingHands(toy, true);
+      hand.pulse(0.25, 20);
     }
-    // 手を離した瞬間の手の速度を、そのまま物の初速にする。
-    toy.body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
-    toy.body.setTranslation(toy.mesh.position, true);
-    toy.body.setRotation(toy.mesh.quaternion, true);
-    toy.body.setLinvel(hand.velocity, true);
-    toy.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
-    this.setPassingHands(toy, true);
-    hand.pulse(0.25, 20);
+    // 通知の中で物が消されることがあるので、最後に知らせる。
+    this.app.items.notifyRelease(hand, button);
   }
 
   /** 持ち手の数が変わったときに、その時点の位置関係を基準として覚え直す。 */
@@ -342,6 +384,7 @@ export class Toys implements Feature {
     this.app.scene.remove(toy.mesh);
     toy.mesh.material.dispose();
     this.toys.splice(this.toys.indexOf(toy), 1);
+    this.app.items.unregister(toy.item);
   }
 
   private handleCollision(collider1: number, collider2: number): void {

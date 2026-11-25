@@ -3,6 +3,7 @@ import { Holding } from './features/holding';
 import { Menu } from './features/menu';
 import { Persistence } from './features/persistence';
 import { Input } from './input';
+import { Items } from './items';
 import { Physics } from './physics';
 import { Tools } from './tools';
 import { OPTIONAL_FEATURES, REQUIRED_FEATURES } from './xrFeatures';
@@ -36,6 +37,7 @@ export class App {
   readonly camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 100);
   readonly input = new Input();
   readonly tools = new Tools(this.input);
+  readonly items = new Items();
   readonly menu = new Menu(this);
   readonly holding = new Holding(this);
   readonly physics = new Physics();

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { App, Feature } from '../app';
 import type { HandState } from '../input';
+import type { Item } from '../items';
 import { round, type SavedPose } from './persistence';
 
 interface Stroke {
@@ -10,6 +11,8 @@ interface Stroke {
   complete: boolean;
   /** 保存用に丸めて並べた点列。描き終えた線は変わらないので、一度作ったら使い回す。 */
   savedPoints?: number[];
+  /** 削除・複製などの操作から見た、この線。描き終えたときに作る。 */
+  item?: Item;
 }
 
 interface SavedStroke {
@@ -129,7 +132,7 @@ export class Drawing implements Feature {
   }
 
   /** 描き終えた線を、持てるようにする。 */
-  private complete(stroke: Stroke): void {
+  private complete(stroke: Stroke): Item {
     const { mesh, points } = stroke;
     mesh.geometry.computeBoundingBox();
     stroke.complete = true;
@@ -147,6 +150,39 @@ export class Drawing implements Feature {
       },
       group: () => this.linked(stroke).map((linked) => linked.mesh),
     });
+    stroke.item = this.createItem(stroke);
+    this.app.items.register(stroke.item);
+    return stroke.item;
+  }
+
+  private createItem(stroke: Stroke): Item {
+    const { mesh } = stroke;
+    const item: Item = {
+      kind: 'stroke',
+      object: mesh,
+      remove: () => {
+        const index = this.strokes.indexOf(stroke);
+        if (index < 0) return;
+        this.dispose(stroke);
+        this.strokes.splice(index, 1);
+      },
+      duplicate: () => {
+        const copy = this.createStroke(stroke.points[0], mesh.material.color.getHex());
+        for (let i = 1; i < stroke.points.length; i++) copy.points.push(stroke.points[i].clone());
+        rebuild(copy);
+        copy.mesh.position.copy(mesh.position);
+        copy.mesh.quaternion.copy(mesh.quaternion);
+        copy.mesh.scale.copy(mesh.scale);
+        return this.complete(copy);
+      },
+      setPose: (position, quaternion) => {
+        if (this.app.items.holdersOf(item).length > 0) return;
+        mesh.position.copy(position);
+        mesh.quaternion.copy(quaternion);
+      },
+      grab: (hand, button) => this.app.holding.hold(hand, mesh, button),
+    };
+    return item;
   }
 
   /** 指定した線と、重なりをたどってつながる線すべて。描いている途中の線は含めない。 */
@@ -189,6 +225,7 @@ export class Drawing implements Feature {
   private dispose(stroke: Stroke): void {
     this.app.scene.remove(stroke.mesh);
     this.app.holding.remove(stroke.mesh);
+    if (stroke.item) this.app.items.unregister(stroke.item);
     stroke.mesh.geometry.dispose();
     stroke.mesh.material.dispose();
   }

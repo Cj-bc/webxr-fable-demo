@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { App, Feature, FrameContext } from '../app';
 import { copyPosition, getJointPose, type HandState } from '../input';
 import { deleteBlob, getBlob, putBlob } from '../blobStore';
+import type { Item } from '../items';
 import { withoutOcclusion } from './occlusion';
 import type { SavedPose } from './persistence';
 
@@ -132,6 +133,10 @@ interface WorldPhoto {
   /** 撮った枠の大きさ (m)。表示の大きさは、これに group の拡大率を掛けたもの。 */
   width: number;
   height: number;
+  /** 削除・複製などの操作から見た、この写真 */
+  item: Item;
+  /** 写真の画像のテクスチャ */
+  texture: THREE.Texture;
 }
 
 interface SavedPhoto {
@@ -828,9 +833,50 @@ export class HandFrame implements Feature {
         return Math.hypot(x, y, local.z) * photo.scale.x;
       },
     });
-    const worldPhoto: WorldPhoto = { id, group: photo, width, height };
+    const worldPhoto = { id, group: photo, width, height, texture } as Omit<WorldPhoto, 'item'> as WorldPhoto;
+    worldPhoto.item = this.createItem(worldPhoto);
     this.worldPhotos.push(worldPhoto);
+    this.app.items.register(worldPhoto.item);
     return worldPhoto;
+  }
+
+  private createItem(worldPhoto: WorldPhoto): Item {
+    const photo = worldPhoto.group;
+    const item: Item = {
+      kind: 'photo',
+      object: photo,
+      remove: () => {
+        const index = this.worldPhotos.indexOf(worldPhoto);
+        if (index < 0) return;
+        this.worldPhotos.splice(index, 1);
+        this.removeWorldPhoto(worldPhoto);
+      },
+      duplicate: () => {
+        // 上限を超えると古い写真から消えるので、元の写真が消えないよう、上限では複製しない。
+        if (this.worldPhotos.length >= MAX_WORLD_PHOTOS) return null;
+        // 画像は同じものを使い、テクスチャだけ分ける (消すときにテクスチャを個別に破棄するため)。
+        const texture = worldPhoto.texture.clone();
+        texture.needsUpdate = true;
+        const copy = this.createWorldPhoto(crypto.randomUUID(), texture, worldPhoto.width, worldPhoto.height);
+        copy.group.position.copy(photo.position);
+        copy.group.quaternion.copy(photo.quaternion);
+        copy.group.scale.copy(photo.scale);
+        // 次回も復元されるよう、保存してある画像を新しい識別子でも保存する。
+        void getBlob(worldPhoto.id)
+          .then((blob) => (blob && this.worldPhotos.includes(copy) ? putBlob(copy.id, blob) : undefined))
+          .catch((error: unknown) => {
+            console.warn('[handFrame] 複製した写真の画像を保存できませんでした。次回は復元されません', error);
+          });
+        return copy.item;
+      },
+      setPose: (position, quaternion) => {
+        if (this.app.items.holdersOf(item).length > 0) return;
+        photo.position.copy(position);
+        photo.quaternion.copy(quaternion);
+      },
+      grab: (hand, button) => this.app.holding.hold(hand, photo, button),
+    };
+    return item;
   }
 
   /** 保存してあった写真を、画像を読み直して作り直す。 */
@@ -862,10 +908,11 @@ export class HandFrame implements Feature {
   }
 
   /** keepImage: 保存してある画像を残す (セッションの終了で、表示だけ片付けるとき) */
-  private removeWorldPhoto({ id, group: photo }: WorldPhoto, keepImage = false): void {
+  private removeWorldPhoto({ id, group: photo, item }: WorldPhoto, keepImage = false): void {
     if (!keepImage) void deleteBlob(id).catch(() => {});
     this.app.scene.remove(photo);
     this.app.holding.remove(photo);
+    this.app.items.unregister(item);
     for (const child of photo.children) {
       const mesh = child as THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
       mesh.geometry.dispose();

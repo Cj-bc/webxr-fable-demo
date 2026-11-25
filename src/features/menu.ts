@@ -3,7 +3,7 @@ import type { App, Feature, FrameContext } from '../app';
 import type { HandState } from '../input';
 import { CanvasPanel } from '../ui/canvasPanel';
 
-type Group = 'tool' | 'toggle' | 'action';
+type Group = 'tool' | 'toggle' | 'action' | 'experiment';
 
 interface MenuItem {
   group: Group;
@@ -24,8 +24,8 @@ const MARGIN = 12;
 const HEADER_HEIGHT = 96;
 const SECTION_HEIGHT = 40;
 const BUTTON_HEIGHT = 88;
-const GROUP_TITLES: Record<Group, string> = { tool: '道具', toggle: '表示', action: '操作' };
-const GROUPS: Group[] = ['tool', 'toggle', 'action'];
+const GROUP_TITLES: Record<Group, string> = { tool: '道具', toggle: '表示', action: '操作', experiment: '持った物の操作 (試作)' };
+const GROUPS: Group[] = ['tool', 'toggle', 'action', 'experiment'];
 
 /** 左手からメニューまでの高さ (m) */
 const HAND_OFFSET = 0.13;
@@ -74,8 +74,13 @@ export class Menu implements Feature {
     this.syncTools();
   }
 
-  addToggle(label: string, get: () => boolean, set: (value: boolean) => void): void {
-    this.addItem('toggle', label, get, () => set(!get()));
+  addToggle(
+    label: string,
+    get: () => boolean,
+    set: (value: boolean) => void,
+    group: 'toggle' | 'experiment' = 'toggle',
+  ): void {
+    this.addItem(group, label, get, () => set(!get()));
   }
 
   addAction(label: string, run: () => void): void {

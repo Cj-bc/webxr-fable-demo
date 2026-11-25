@@ -78,6 +78,7 @@ export class Holding implements Feature {
 
   end(): void {
     this.held.clear();
+    this.app.items.clearHeld();
   }
 
   update(): void {
@@ -126,7 +127,22 @@ export class Holding implements Feature {
       }
     }
     if (!nearest) return false;
+    const item = this.app.items.of(nearest.object);
+    if (item && this.app.items.interceptGrab(hand, item, button)) return true;
+    this.holdWith(hand, nearest, button);
+    return true;
+  }
 
+  /** 指定した物を、この手で持たせる。近くにあるかどうかは問わない (複製した物を手に渡すときなど)。 */
+  hold(hand: HandState, object: THREE.Object3D, button: HoldButton): boolean {
+    if (!hand.tracked || this.held.has(hand)) return false;
+    const holdable = this.holdables.find((candidate) => candidate.object === object);
+    if (!holdable || (holdable.canHold && !holdable.canHold())) return false;
+    this.holdWith(hand, holdable, button);
+    return true;
+  }
+
+  private holdWith(hand: HandState, nearest: Holdable, button: HoldButton): void {
     const other = this.held.get(this.app.input.other(hand));
     let hold: Hold;
     if (other?.parts.some((part) => part.object === nearest.object)) {
@@ -152,7 +168,8 @@ export class Holding implements Feature {
     this.held.set(hand, hold);
     this.beginHold(hold);
     hand.pulse(0.5, 25);
-    return true;
+    const items = hold.parts.flatMap((part) => this.app.items.of(part.object) ?? []);
+    this.app.items.notifyGrab(hand, items, button);
   }
 
   private release(hand: HandState, button: HoldButton): void {
@@ -163,6 +180,7 @@ export class Holding implements Feature {
     hold.hands.splice(index, 1);
     if (hold.hands.length > 0) this.beginHold(hold);
     hand.pulse(0.25, 20);
+    this.app.items.notifyRelease(hand, button);
   }
 
   /** 持ち手の数が変わったときに、その時点の位置関係を基準として覚え直す。 */

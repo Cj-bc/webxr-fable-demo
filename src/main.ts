@@ -15,6 +15,7 @@ import { Room } from './features/room';
 import { StatusPanel } from './features/statusPanel';
 import { Toys } from './features/toys';
 import type { HandState } from './input';
+import { ItemInteractions } from './interactions/manager';
 import { addPhoto, setMessage, setupCameraButton, setupEnterButton, showEnabledFeatures } from './landing';
 
 const app = new App();
@@ -41,6 +42,8 @@ placement.onPlaced = (position) => audio.chime(position);
 portal.onOpened = (position) => audio.chime(position);
 handFrame.onCapture = (position) => audio.click(position);
 handFrame.onPhoto = (photo) => addPhoto(photo.url, photo.name);
+// 持っている物への操作 (削除・複製など) の試作。src/interactions/strategies/ の案をメニューで切り替える。
+app.add(new ItemInteractions({ app, audio, room, hitTest, portal, toys }));
 // カメラの状態は HandFrame が持ち、ページは知らされた状態を表示するだけにする。
 handFrame.onCameraChange = setupCameraButton({
   start: (deviceId) => void handFrame.startCamera(deviceId),

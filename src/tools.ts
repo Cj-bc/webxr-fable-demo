@@ -52,8 +52,10 @@ export class Tools {
     this.onChange?.();
   }
 
-  addInterceptor(interceptor: Interceptor): void {
-    this.interceptors.push(interceptor);
+  /** first: 先に登録された interceptor (メニューを押す、近くの物をつかむ) より先に試す */
+  addInterceptor(interceptor: Interceptor, { first = false } = {}): void {
+    if (first) this.interceptors.unshift(interceptor);
+    else this.interceptors.push(interceptor);
   }
 
   setActive(tool: Tool): void {
