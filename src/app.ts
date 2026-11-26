@@ -38,8 +38,8 @@ export class App {
   readonly input = new Input();
   readonly tools = new Tools(this.input);
   readonly items = new Items();
-  readonly menu = new Menu(this);
-  readonly holding = new Holding(this);
+  readonly menu: Menu;
+  readonly holding: Holding;
   readonly physics = new Physics();
   session: XRSession | null = null;
   onSessionStart: ((session: XRSession) => void) | null = null;
@@ -55,6 +55,9 @@ export class App {
   readonly persistence = new Persistence(this);
 
   constructor() {
+    this.menu = new Menu(this, this.tools);
+    this.tools.addSelector(this.menu);
+    this.holding = new Holding(this);
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.xr.enabled = true;
