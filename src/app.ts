@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { FingerToolSelector } from './features/fingerToolSelector';
 import { Holding } from './features/holding';
 import { Menu } from './features/menu';
 import { Persistence } from './features/persistence';
@@ -39,6 +40,7 @@ export class App {
   readonly tools = new Tools(this.input);
   readonly items = new Items();
   readonly menu: Menu;
+  readonly fingerTools = new FingerToolSelector(this.scene, this.input.left, this.tools);
   readonly holding: Holding;
   readonly physics = new Physics();
   session: XRSession | null = null;
@@ -57,6 +59,9 @@ export class App {
   constructor() {
     this.menu = new Menu(this, this.tools);
     this.tools.addSelector(this.menu);
+    this.tools.addSelector(this.fingerTools);
+    this.menu.addToggle('指で道具を選ぶ', () => this.fingerTools.isEnabled,
+      (enabled) => this.fingerTools.setEnabled(enabled));
     this.holding = new Holding(this);
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
@@ -65,6 +70,7 @@ export class App {
     document.body.appendChild(this.renderer.domElement);
     this.add(this.input);
     this.add(this.menu);
+    this.add(this.fingerTools);
     this.add(this.holding);
     // 終了時に、他の機能が物を片付けるより先に保存できるよう、ここで登録する。
     this.add(this.persistence);
