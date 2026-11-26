@@ -14,7 +14,13 @@ const VELOCITY_WINDOW = 0.1;
  */
 const GRASP_START = 0.62;
 const GRASP_END = 0.78;
-const GRASP_FINGERS = ['index-finger', 'middle-finger', 'ring-finger', 'pinky-finger'] as const;
+export const TRACKED_FINGERS = ['index-finger', 'middle-finger', 'ring-finger', 'pinky-finger'] as const;
+
+interface Fingertip {
+  position: THREE.Vector3;
+  radius: number;
+  extension: number;
+}
 
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
@@ -37,6 +43,14 @@ export class HandState {
   squeezing = false;
   /** 素手のとき、人差し指から小指のうち、いちばん伸びている指の伸び具合 (まっすぐなら 1) */
   fingerExtension = 1;
+  /** 全指の関節が揃ったフレームだけ、指ごとの姿勢を使える。 */
+  fingertipsTracked = false;
+  readonly thumbTip = { position: new THREE.Vector3(), radius: 0 };
+  readonly fingertips: readonly Fingertip[] = TRACKED_FINGERS.map(() => ({
+    position: new THREE.Vector3(),
+    radius: 0,
+    extension: 0,
+  }));
 
   /** 指し示すレイ (targetRaySpace) */
   readonly rayOrigin = new THREE.Vector3();
@@ -70,6 +84,7 @@ export class HandState {
     const { frame, refSpace } = ctx;
     const source = this.source;
     this.tracked = false;
+    this.fingertipsTracked = false;
     if (!source) return;
 
     const rayPose = frame.getPose(source.targetRaySpace, refSpace);
@@ -86,11 +101,13 @@ export class HandState {
       const wrist = getJointPose(frame, source.hand, 'wrist', refSpace);
       if (!indexTip || !thumbTip || !wrist) return;
       copyPosition(this.tipPosition, indexTip.transform.position);
-      copyPosition(this.grabPosition, thumbTip.transform.position).add(this.tipPosition).multiplyScalar(0.5);
+      copyPosition(this.thumbTip.position, thumbTip.transform.position);
+      this.thumbTip.radius = thumbTip.radius ?? 0;
+      this.grabPosition.copy(this.thumbTip.position).add(this.tipPosition).multiplyScalar(0.5);
       copyQuaternion(this.grabQuaternion, wrist.transform.orientation);
       // 手の関節の空間は、-Y が手のひらから外へ出る向きと決められている。
       this.palmNormal.set(0, -1, 0).applyQuaternion(this.grabQuaternion);
-      this.updateFingerExtension(frame, source.hand, refSpace);
+      this.updateFingertips(frame, source.hand, refSpace, indexTip);
     } else {
       const gripPose = source.gripSpace ? frame.getPose(source.gripSpace, refSpace) : null;
       const transform = (gripPose ?? rayPose).transform;
@@ -108,6 +125,7 @@ export class HandState {
   reset(): void {
     this.source = null;
     this.tracked = false;
+    this.fingertipsTracked = false;
     this.selecting = false;
     this.squeezing = false;
     this.fingerExtension = 1;
@@ -116,13 +134,19 @@ export class HandState {
   }
 
   /** 関節が 1 つでも取れなければ、前の値を保つ。 */
-  private updateFingerExtension(frame: XRFrame, hand: XRHand, refSpace: XRReferenceSpace): void {
+  private updateFingertips(
+    frame: XRFrame,
+    hand: XRHand,
+    refSpace: XRReferenceSpace,
+    indexTip: XRJointPose,
+  ): void {
     let extension = 0;
-    for (const finger of GRASP_FINGERS) {
+    for (const [i, finger] of TRACKED_FINGERS.entries()) {
+      const fingertip = this.fingertips[i];
       const proximal = getJointPose(frame, hand, `${finger}-phalanx-proximal`, refSpace);
       const intermediate = getJointPose(frame, hand, `${finger}-phalanx-intermediate`, refSpace);
       const distal = getJointPose(frame, hand, `${finger}-phalanx-distal`, refSpace);
-      const tip = getJointPose(frame, hand, `${finger}-tip`, refSpace);
+      const tip = i === 0 ? indexTip : getJointPose(frame, hand, `${finger}-tip`, refSpace);
       if (!proximal || !intermediate || !distal || !tip) return;
       const base = copyPosition(_a, proximal.transform.position);
       const middle = copyPosition(_b, intermediate.transform.position);
@@ -130,9 +154,13 @@ export class HandState {
       const end = copyPosition(_d, tip.transform.position);
       const length = base.distanceTo(middle) + middle.distanceTo(far) + far.distanceTo(end);
       if (length < 1e-4) return;
-      extension = Math.max(extension, base.distanceTo(end) / length);
+      fingertip.position.copy(end);
+      fingertip.radius = tip.radius ?? 0;
+      fingertip.extension = base.distanceTo(end) / length;
+      extension = Math.max(extension, fingertip.extension);
     }
     this.fingerExtension = extension;
+    this.fingertipsTracked = true;
   }
 
   private updateVelocity(time: number): void {
