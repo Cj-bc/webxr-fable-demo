@@ -1,0 +1,52 @@
+{
+  "cli_version": "0.13.2",
+  "checkpoint_id": "01M8E7PASQSBNMAQRBJ5S1DQYX",
+  "strategy": "manual-commit",
+  "branch": "master",
+  "checkpoints_count": 7,
+  "files_touched": [
+    ".agent-artifacts/README.md",
+    ".agent-artifacts/item-actions/ideas.md",
+    "deno.lock"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 36,
+    "cache_creation_tokens": 95841,
+    "cache_read_tokens": 1986139,
+    "output_tokens": 7328,
+    "api_call_count": 12,
+    "subagent_tokens": {
+      "input_tokens": 48,
+      "cache_creation_tokens": 243517,
+      "cache_read_tokens": 2039564,
+      "output_tokens": 34765,
+      "api_call_count": 22
+    },
+    "subagent_tokens_complete": true
+  },
+  "redaction": {
+    "replacements": 1356,
+    "layers": {
+      "betterleaks": 0,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "custom": 1356,
+      "entropy": 0,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    },
+    "custom_rules_active": 2
+  }
+}
