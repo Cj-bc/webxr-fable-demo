@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { Scene, Vector3 } from 'three';
 import type { FrameContext } from '../src/app.ts';
-import { FingerToolSelector } from '../src/features/fingerToolSelector.ts';
+import { FingerSelector } from '../src/features/fingerSelector.ts';
 import { Input } from '../src/input.ts';
 import { Tools } from '../src/tools.ts';
 
@@ -10,7 +10,7 @@ Deno.test('finger selection requires an open hand and absorbs the selection pinc
   const hand = input.left;
   const tools = new Tools(input);
   const scene = new Scene();
-  const selector = new FingerToolSelector(scene, hand, tools);
+  const selector = new FingerSelector(scene, hand, tools);
   for (const id of ['ball', 'block', 'place', 'draw', 'portal']) {
     tools.register({ id, label: id, hint: '', onSelectStart() {} });
   }

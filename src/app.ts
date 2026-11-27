@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FingerToolSelector } from './features/fingerToolSelector';
+import { FingerSelector } from './features/fingerSelector';
 import { Holding } from './features/holding';
 import { Menu } from './features/menu';
 import { Persistence } from './features/persistence';
@@ -40,7 +40,7 @@ export class App {
   readonly tools = new Tools(this.input);
   readonly items = new Items();
   readonly menu: Menu;
-  readonly fingerTools = new FingerToolSelector(this.scene, this.input.left, this.tools);
+  readonly fingerTools = new FingerSelector(this.scene, this.input.left, this.tools);
   readonly holding: Holding;
   readonly physics = new Physics();
   session: XRSession | null = null;
