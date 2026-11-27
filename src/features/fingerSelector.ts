@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import type { Feature, FrameContext } from '../app';
 import type { HandState } from '../input';
-import type { Tool, ToolSelection, ToolSelector } from '../tools';
+import type { ISelector } from '../selector';
+import type { SelectInputHandler } from '../tools';
 import { CanvasPanel } from '../ui/canvasPanel';
 
 const OPEN_EXTENSION = 0.85;
@@ -10,13 +11,13 @@ const PALM_UP_HIDE = Math.cos(THREE.MathUtils.degToRad(65));
 const CONTACT_MARGIN = 0.004;
 const RELEASE_MARGIN = 0.01;
 
-export class FingerToolSelector implements Feature, ToolSelector {
-  readonly name = 'finger-tool-selector';
+export class FingerSelector<T extends { label: string }> implements Feature, SelectInputHandler {
+  readonly name = 'finger-selector';
   onSelect: ((position: THREE.Vector3) => void) | null = null;
 
   private enabled = false;
   private source: XRInputSource | null = null;
-  private slots: readonly Tool[] = [];
+  private slots: readonly T[] = [];
   private consumed = false;
   private readonly labels: CanvasPanel[] = [];
   private readonly center = new THREE.Vector3();
@@ -24,7 +25,7 @@ export class FingerToolSelector implements Feature, ToolSelector {
   constructor(
     private readonly scene: THREE.Scene,
     private readonly hand: HandState,
-    private readonly selection: ToolSelection,
+    private readonly selection: ISelector<T>,
   ) {}
 
   get isEnabled(): boolean {
@@ -43,7 +44,7 @@ export class FingerToolSelector implements Feature, ToolSelector {
   }
 
   interceptSelect(hand: HandState): boolean {
-    // XR の人差し指ピンチが接触判定の前後どちらに届いても、道具の使用には回さない。
+    // XR の人差し指ピンチが接触判定の前後どちらに届いても、後続の処理には回さない。
     return hand === this.hand && hand.tracked && hand.source === this.source &&
       (this.slots.length > 0 || this.consumed);
   }
@@ -79,18 +80,18 @@ export class FingerToolSelector implements Feature, ToolSelector {
     if (this.slots.length === 0) {
       if (this.consumed || hand.selecting || !released ||
           !hand.fingertips.every((tip) => tip.extension >= OPEN_EXTENSION)) return;
-      // 手を開き直すまで割り当てを固定する。現在の道具を除けば、残りを 4 本に並べられる。
+      // 手を開き直すまで割り当てを固定する。現在の選択を除き、指先の数だけ候補を並べる。
       this.slots = this.selection.list
-        .filter((tool) => tool !== this.selection.active)
+        .filter((item) => item !== this.selection.active)
         .slice(0, hand.fingertips.length);
-      this.slots.forEach((tool, i) => this.drawLabel(i, tool.label));
+      this.slots.forEach((item, i) => this.drawLabel(i, item.label));
     }
 
     if (nearest >= 0) {
-      const tool = this.slots[nearest];
+      const item = this.slots[nearest];
       this.consumed = true;
       this.hide();
-      this.selection.setActive(tool);
+      this.selection.setActive(item);
       this.onSelect?.(hand.fingertips[nearest].position);
       return;
     }

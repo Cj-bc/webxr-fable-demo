@@ -1,3 +1,4 @@
+import type { ISelector } from './selector';
 import type { HandState, Input } from './input';
 
 /** メニューで切り替える「道具」。つまみ / トリガーで何が起きるかを決める。 */
@@ -15,16 +16,39 @@ export interface Tool {
 /** select を道具より先に横取りする処理。処理したら true を返す。 */
 export type Interceptor = (hand: HandState) => boolean;
 
-/** 選択 UI が共有する道具の一覧と選択状態。 */
-export interface ToolSelection {
-  readonly list: readonly Tool[];
-  readonly active: Tool | null;
-  setActive(tool: Tool): void;
-  onChange(listener: () => void): void;
+/** 登録された道具の一覧と選択状態。 */
+export class ToolSelector implements ISelector<Tool> {
+  private readonly registered: Tool[] = [];
+  private selected: Tool | null = null;
+  private readonly changeListeners: (() => void)[] = [];
+
+  get list(): readonly Tool[] {
+    return this.registered;
+  }
+
+  get active(): Tool | null {
+    return this.selected;
+  }
+
+  register(tool: Tool): void {
+    this.registered.push(tool);
+    this.selected ??= tool;
+    for (const listener of this.changeListeners) listener();
+  }
+
+  setActive(tool: Tool): void {
+    if (!this.registered.includes(tool)) return;
+    this.selected = tool;
+    for (const listener of this.changeListeners) listener();
+  }
+
+  onChange(listener: () => void): void {
+    this.changeListeners.push(listener);
+  }
 }
 
-/** 道具を選ぶ UI。既定の select 入力を使う場合は、道具への入力より先に処理する。 */
-export interface ToolSelector {
+/** XR の select 入力を道具より先に処理する UI。 */
+export interface SelectInputHandler {
   interceptSelect(hand: HandState): boolean;
 }
 
@@ -33,16 +57,13 @@ export interface ToolSelector {
  * 登録順に interceptor を試し (メニューを押す、近くの物をつかむ)、
  * 誰も処理しなければ選択中の道具に渡す。
  */
-export class Tools implements ToolSelection {
-  readonly list: Tool[] = [];
-  active: Tool | null = null;
-  private readonly changeListeners: (() => void)[] = [];
-
+export class Tools extends ToolSelector {
   private readonly interceptors: Interceptor[] = [];
   /** selectstart を受けた道具。途中で道具を切り替えても selectend を同じ道具に返す。 */
   private readonly started = new Map<HandState, Tool>();
 
   constructor(input: Input) {
+    super();
     input.on('selectstart', (hand) => {
       // 手を握ると、親指が人差し指に触れてつまみと判定されることがある。握っている手のつまみは無視する。
       if (hand.isHand && hand.squeezing) return;
@@ -59,17 +80,7 @@ export class Tools implements ToolSelection {
     });
   }
 
-  register(tool: Tool): void {
-    this.list.push(tool);
-    this.active ??= tool;
-    for (const listener of this.changeListeners) listener();
-  }
-
-  onChange(listener: () => void): void {
-    this.changeListeners.push(listener);
-  }
-
-  addSelector(selector: ToolSelector): void {
+  addSelector(selector: SelectInputHandler): void {
     this.addInterceptor((hand) => selector.interceptSelect(hand));
   }
 
@@ -77,10 +88,5 @@ export class Tools implements ToolSelection {
   addInterceptor(interceptor: Interceptor, { first = false } = {}): void {
     if (first) this.interceptors.unshift(interceptor);
     else this.interceptors.push(interceptor);
-  }
-
-  setActive(tool: Tool): void {
-    this.active = tool;
-    for (const listener of this.changeListeners) listener();
   }
 }
