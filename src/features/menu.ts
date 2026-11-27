@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { App, Feature, FrameContext } from '../app';
 import type { HandState } from '../input';
+import type { ToolSelection, ToolSelector } from '../tools';
 import { CanvasPanel } from '../ui/canvasPanel';
 
 type Group = 'tool' | 'toggle' | 'action' | 'experiment';
@@ -47,7 +48,7 @@ const _forward = new THREE.Vector3();
  * 反対の手の指先で直接押すか、レイを当ててつまむ / トリガーで押す。
  * 左手が見つからないときは、最後にあった場所 (最初は正面) に留まる。
  */
-export class Menu implements Feature {
+export class Menu implements Feature, ToolSelector {
   readonly name = 'menu';
   /** ボタンが押されたときの通知 (効果音など) */
   onPress: ((position: THREE.Vector3) => void) | null = null;
@@ -65,13 +66,15 @@ export class Menu implements Feature {
   private readonly pokeArmed = new Map<HandState, boolean>();
   private readonly suppressors: (() => boolean)[] = [];
 
-  constructor(private readonly app: App) {
-    app.tools.onChange = () => {
+  constructor(
+    private readonly app: App,
+    private readonly selection: ToolSelection,
+  ) {
+    selection.onChange(() => {
       // 道具の選択が変わっただけなら、描き直すだけでよい。
-      if (app.tools.list.length !== this.toolCount) this.syncTools();
+      if (selection.list.length !== this.toolCount) this.syncTools();
       this.dirty = true;
-    };
-    app.tools.addInterceptor((hand) => this.tryRayPress(hand));
+    });
     this.syncTools();
   }
 
@@ -120,7 +123,7 @@ export class Menu implements Feature {
 
   /** 道具の一覧は Tools が持っているので、道具が増えたらボタンを作り直す。 */
   private syncTools(): void {
-    const tools = this.app.tools;
+    const tools = this.selection;
     const others = this.items.filter((item) => item.group !== 'tool');
     this.items.length = 0;
     for (const tool of tools.list) {
@@ -225,7 +228,7 @@ export class Menu implements Feature {
     }
   }
 
-  private tryRayPress(hand: HandState): boolean {
+  interceptSelect(hand: HandState): boolean {
     const panel = this.panel;
     if (!panel || !panel.mesh.visible || !this.canPress(hand)) return false;
     const point = panel.raycast(hand.rayOrigin, hand.rayDirection);
@@ -269,7 +272,7 @@ export class Menu implements Feature {
     g.fillText('MR プレイルーム', MARGIN + 6, 30);
     g.fillStyle = '#a9b4c8';
     g.font = '20px system-ui, sans-serif';
-    g.fillText(this.app.tools.active?.hint ?? '', MARGIN + 6, 70, width - MARGIN * 2 - 12);
+    g.fillText(this.selection.active?.hint ?? '', MARGIN + 6, 70, width - MARGIN * 2 - 12);
 
     let lastGroup: Group | null = null;
     for (const item of GROUPS.flatMap((group) => this.items.filter((it) => it.group === group))) {

@@ -15,15 +15,28 @@ export interface Tool {
 /** select を道具より先に横取りする処理。処理したら true を返す。 */
 export type Interceptor = (hand: HandState) => boolean;
 
+/** 選択 UI が共有する道具の一覧と選択状態。 */
+export interface ToolSelection {
+  readonly list: readonly Tool[];
+  readonly active: Tool | null;
+  setActive(tool: Tool): void;
+  onChange(listener: () => void): void;
+}
+
+/** 道具を選ぶ UI。既定の select 入力を使う場合は、道具への入力より先に処理する。 */
+export interface ToolSelector {
+  interceptSelect(hand: HandState): boolean;
+}
+
 /**
  * select (つまみ / トリガー) の行き先を決める。
  * 登録順に interceptor を試し (メニューを押す、近くの物をつかむ)、
  * 誰も処理しなければ選択中の道具に渡す。
  */
-export class Tools {
+export class Tools implements ToolSelection {
   readonly list: Tool[] = [];
   active: Tool | null = null;
-  onChange: (() => void) | null = null;
+  private readonly changeListeners: (() => void)[] = [];
 
   private readonly interceptors: Interceptor[] = [];
   /** selectstart を受けた道具。途中で道具を切り替えても selectend を同じ道具に返す。 */
@@ -49,7 +62,15 @@ export class Tools {
   register(tool: Tool): void {
     this.list.push(tool);
     this.active ??= tool;
-    this.onChange?.();
+    for (const listener of this.changeListeners) listener();
+  }
+
+  onChange(listener: () => void): void {
+    this.changeListeners.push(listener);
+  }
+
+  addSelector(selector: ToolSelector): void {
+    this.addInterceptor((hand) => selector.interceptSelect(hand));
   }
 
   /** first: 先に登録された interceptor (メニューを押す、近くの物をつかむ) より先に試す */
@@ -60,6 +81,6 @@ export class Tools {
 
   setActive(tool: Tool): void {
     this.active = tool;
-    this.onChange?.();
+    for (const listener of this.changeListeners) listener();
   }
 }

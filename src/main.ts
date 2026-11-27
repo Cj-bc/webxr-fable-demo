@@ -38,6 +38,7 @@ const handFrame = app.add(new HandFrame(app));
 const audio = app.add(new Audio());
 toys.onImpact = (position, speed, kind) => audio.impact(position, speed, kind);
 app.menu.onPress = (position) => audio.click(position);
+app.fingerTools.onSelect = (position) => audio.click(position);
 placement.onPlaced = (position) => audio.chime(position);
 portal.onOpened = (position) => audio.chime(position);
 handFrame.onCapture = (position) => audio.click(position);
