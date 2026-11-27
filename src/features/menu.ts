@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import type { App, Feature, FrameContext } from '../app';
 import type { HandState } from '../input';
-import type { ToolSelection, ToolSelector } from '../tools';
+import type { ISelector } from '../selector';
+import type { SelectInputHandler, Tool } from '../tools';
 import { CanvasPanel } from '../ui/canvasPanel';
 
 type Group = 'tool' | 'toggle' | 'action' | 'experiment';
@@ -48,7 +49,7 @@ const _forward = new THREE.Vector3();
  * 反対の手の指先で直接押すか、レイを当ててつまむ / トリガーで押す。
  * 左手が見つからないときは、最後にあった場所 (最初は正面) に留まる。
  */
-export class Menu implements Feature, ToolSelector {
+export class Menu implements Feature, SelectInputHandler {
   readonly name = 'menu';
   /** ボタンが押されたときの通知 (効果音など) */
   onPress: ((position: THREE.Vector3) => void) | null = null;
@@ -68,7 +69,7 @@ export class Menu implements Feature, ToolSelector {
 
   constructor(
     private readonly app: App,
-    private readonly selection: ToolSelection,
+    private readonly selection: ISelector<Tool>,
   ) {
     selection.onChange(() => {
       // 道具の選択が変わっただけなら、描き直すだけでよい。

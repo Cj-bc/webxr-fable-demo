@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import type { Feature, FrameContext } from '../app';
 import type { HandState } from '../input';
-import type { Tool, ToolSelection, ToolSelector } from '../tools';
+import type { ISelector } from '../selector';
+import type { SelectInputHandler, Tool } from '../tools';
 import { CanvasPanel } from '../ui/canvasPanel';
 
 const OPEN_EXTENSION = 0.85;
@@ -10,7 +11,7 @@ const PALM_UP_HIDE = Math.cos(THREE.MathUtils.degToRad(65));
 const CONTACT_MARGIN = 0.004;
 const RELEASE_MARGIN = 0.01;
 
-export class FingerToolSelector implements Feature, ToolSelector {
+export class FingerToolSelector implements Feature, SelectInputHandler {
   readonly name = 'finger-tool-selector';
   onSelect: ((position: THREE.Vector3) => void) | null = null;
 
@@ -24,7 +25,7 @@ export class FingerToolSelector implements Feature, ToolSelector {
   constructor(
     private readonly scene: THREE.Scene,
     private readonly hand: HandState,
-    private readonly selection: ToolSelection,
+    private readonly selection: ISelector<Tool>,
   ) {}
 
   get isEnabled(): boolean {
