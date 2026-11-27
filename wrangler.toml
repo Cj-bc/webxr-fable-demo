@@ -1,1 +1,16 @@
+# Vite でビルドした静的ファイル (dist/) を Workers Static Assets として配信する。
+# Worker スクリプトは持たないので `main` は指定しない。
+#
+# ビルド: deno task build (dist/ を作る)
+# 本番:   wrangler deploy
+# プレビュー: wrangler preview  (既定ではプレビュー名に現在の git ブランチ名が使われる)
+name = "webxr-fable-demo"
+compatibility_date = "2026-11-01"
+
+[assets]
+directory = "./dist"
+not_found_handling = "single-page-application"
+
+# `wrangler preview` で作る Preview デプロイの設定。
+# 今は本番と同じ静的配信だけなので、上書きする項目はない。
 [previews]
