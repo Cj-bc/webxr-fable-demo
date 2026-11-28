@@ -3,6 +3,7 @@ import { FingerSelector } from './features/fingerSelector';
 import { Holding } from './features/holding';
 import { Menu } from './features/menu';
 import { Persistence } from './features/persistence';
+import { SummonGrab } from './interactions/summonGrab';
 import { GrabMethods } from './interactions/grabMethods';
 import { PointerDispatcher, PokePointer, RayPointer } from './ui/pointers';
 import type { PointerMethod } from './ui/pointers';
@@ -102,6 +103,10 @@ export class App {
     });
     this.add(this.fingerTools);
     this.add(this.holding);
+    const summon = this.add(new SummonGrab(this));
+    const near = this.grabs.method;
+    this.menu.addToggle('手招きで物を呼ぶ', () => this.grabs.method === summon,
+      (enabled) => { this.grabs.method = enabled ? summon : near; });
     // 終了時に、他の機能が物を片付けるより先に保存できるよう、ここで登録する。
     this.add(this.persistence);
     window.addEventListener('resize', () => {
