@@ -13,9 +13,10 @@ interface Aim {
   time: number;
 }
 
-/** 手のひらを向けてから手前に引くと、物が手元まで来る。そこで普段どおり掴める。 */
+/** 親指と中指でつまんだまま、手のひらを向けて手前に引くと、物が手元まで来る。 */
 export class SummonGrab extends NearGrab implements Feature {
   readonly name = 'summonGrab';
+  private readonly summoned = new Set<HandState>();
   private readonly aims = new Map<HandState, Aim>();
   private readonly flights = new Map<Item, HandState>();
   private readonly highlights = new Map<HandState, TargetParticles>();
@@ -28,8 +29,13 @@ export class SummonGrab extends NearGrab implements Feature {
   update(ctx: FrameContext): void {
     const active = this.app.grabs.method === this;
     for (const hand of this.app.input.hands) {
-      const canAim = active && hand.tracked && hand.isHand && !hand.selecting && !hand.squeezing
-        && hand.fingerExtension > 0.8 && this.app.items.heldBy(hand).length === 0
+      const middle = hand.fingertips[1];
+      const contactDistance = hand.thumbTip.radius + middle.radius + 0.012;
+      const pinchingMiddle = hand.tracked && hand.isHand && hand.fingertipsTracked
+        && hand.thumbTip.position.distanceTo(middle.position) <= contactDistance;
+      if (!pinchingMiddle) this.summoned.delete(hand);
+      const canAim = active && pinchingMiddle && !this.summoned.has(hand)
+        && !hand.selecting && !hand.squeezing && this.app.items.heldBy(hand).length === 0
         && ![...this.flights.values()].includes(hand);
       if (!canAim) {
         this.aims.delete(hand);
@@ -42,6 +48,7 @@ export class SummonGrab extends NearGrab implements Feature {
         const travel = this.destination.subVectors(hand.grabPosition, aim.start);
         if (travel.dot(aim.direction) < -0.11 && travel.length() < 0.28) {
           this.flights.set(aim.item, hand);
+          this.summoned.add(hand);
           this.aims.delete(hand);
           this.show(hand, ctx.time);
           continue;
@@ -83,6 +90,7 @@ export class SummonGrab extends NearGrab implements Feature {
 
   end(): void {
     this.aims.clear();
+    this.summoned.clear();
     this.flights.clear();
     for (const effect of this.highlights.values()) effect.dispose();
     this.highlights.clear();
