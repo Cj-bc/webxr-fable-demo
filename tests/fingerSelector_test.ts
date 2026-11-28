@@ -4,13 +4,15 @@ import type { FrameContext } from '../src/app.ts';
 import { FingerSelector } from '../src/features/fingerSelector.ts';
 import { Input } from '../src/input.ts';
 import { Tools } from '../src/tools.ts';
+import { createToolModel } from '../src/ui/toolModels.ts';
 
 Deno.test('finger selection requires an open hand and absorbs the selection pinch', () => {
   const input = new Input();
   const hand = input.left;
   const tools = new Tools(input);
   const scene = new Scene();
-  const selector = new FingerSelector(scene, hand, tools);
+  const selector = new FingerSelector(scene, hand, tools, (tool) => createToolModel(tool.id));
+  const visibleChoices = () => scene.children.filter((child) => child.visible);
   for (const id of ['ball', 'block', 'place', 'draw', 'portal']) {
     tools.register({ id, label: id, hint: '', onSelectStart() {} });
   }
@@ -49,7 +51,8 @@ Deno.test('finger selection requires an open hand and absorbs the selection pinc
 
     open();
     selector.update(ctx);
-    assert.equal(scene.children.filter((child) => child.visible).length, 4);
+    assert.equal(visibleChoices().length, 4);
+    assert.ok(visibleChoices().every((choice) => choice.children[0]?.children.length > 0));
     assert.equal(selector.interceptSelect(input.right), false);
     assert.equal(selector.interceptSelect(hand), true);
 
@@ -59,13 +62,15 @@ Deno.test('finger selection requires an open hand and absorbs the selection pinc
     selector.update(ctx);
     assert.equal(tools.active?.id, 'block');
     assert.equal(selector.interceptSelect(hand), true);
-    assert.equal(scene.children.some((child) => child.visible), false);
+    assert.deepEqual(visibleChoices(), [scene.children[0]]);
+    assert.ok(visibleChoices()[0].children[0]?.children.length > 0);
     selector.update(ctx);
     assert.equal(tools.active?.id, 'block');
 
     hand.selecting = false;
     open();
     selector.update(ctx);
+    assert.equal(visibleChoices().length, 4);
     hand.thumbTip.position.copy(hand.fingertips[3].position);
     selector.update(ctx);
     assert.equal(tools.active?.id, 'portal');

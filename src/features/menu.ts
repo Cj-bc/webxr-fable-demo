@@ -4,6 +4,7 @@ import type { HandState } from '../input';
 import type { ISelector } from '../selector';
 import type { SelectInputHandler, Tool } from '../tools';
 import { CanvasPanel } from '../ui/canvasPanel';
+import { createToolModel } from '../ui/toolModels';
 
 type Group = 'tool' | 'toggle' | 'action' | 'experiment';
 
@@ -17,6 +18,7 @@ interface MenuItem {
   width: number;
   height: number;
   flashUntil: number;
+  model?: THREE.Group;
 }
 
 const PANEL_WIDTH = 0.26;
@@ -26,6 +28,9 @@ const MARGIN = 12;
 const HEADER_HEIGHT = 96;
 const SECTION_HEIGHT = 40;
 const BUTTON_HEIGHT = 88;
+const TOOL_MODEL_COLUMN = 80;
+/** 指先の名前とモデル (101, 102) より手前に描く。 */
+const MENU_RENDER_ORDER = 103;
 const GROUP_TITLES: Record<Group, string> = { tool: '道具', toggle: '表示', action: '操作', experiment: '持った物の操作 (試作)' };
 const GROUPS: Group[] = ['tool', 'toggle', 'action', 'experiment'];
 
@@ -61,6 +66,7 @@ export class Menu implements Feature, SelectInputHandler {
   /** 見た目が変わったので、描き直す必要がある */
   private dirty = true;
   private toolCount = 0;
+  private readonly toolModels = new Map<Tool, THREE.Group>();
   private time = 0;
   private placedInFront = false;
   private palmUp = false;
@@ -128,19 +134,27 @@ export class Menu implements Feature, SelectInputHandler {
     const others = this.items.filter((item) => item.group !== 'tool');
     this.items.length = 0;
     for (const tool of tools.list) {
+      let model = this.toolModels.get(tool);
+      if (!model) {
+        model = createToolModel(tool.id, { renderOrder: MENU_RENDER_ORDER + 1 });
+        if (model) this.toolModels.set(tool, model);
+      }
       this.addItem(
         'tool',
         tool.label,
         () => tools.active === tool,
         () => tools.setActive(tool),
+        model,
       );
     }
     this.items.push(...others);
     this.toolCount = tools.list.length;
   }
 
-  private addItem(group: Group, label: string, isActive: () => boolean, press: () => void): void {
-    this.items.push({ group, label, isActive, press, x: 0, y: 0, width: 0, height: 0, flashUntil: 0 });
+  private addItem(
+    group: Group, label: string, isActive: () => boolean, press: () => void, model?: THREE.Group,
+  ): void {
+    this.items.push({ group, label, isActive, press, x: 0, y: 0, width: 0, height: 0, flashUntil: 0, model });
     // ここでは作り直さない。フレーム処理の途中でパネルを差し替えると、古い方に描いてしまう。
     this.layoutDirty = true;
   }
@@ -167,8 +181,19 @@ export class Menu implements Feature, SelectInputHandler {
     const old = this.panel;
     const panel = new CanvasPanel(PANEL_WIDTH, y / PIXELS_PER_METER, PIXELS_PER_METER);
     // メニューは他の仮想物体に埋もれないよう、最後に深度を無視して描く。
-    panel.mesh.renderOrder = 100;
+    panel.mesh.renderOrder = MENU_RENDER_ORDER;
     panel.mesh.material.depthTest = false;
+    panel.mesh.material.depthWrite = false;
+    for (const item of this.items) {
+      if (!item.model) continue;
+      item.model.position.set(
+        (item.x + TOOL_MODEL_COLUMN / 2) / PIXELS_PER_METER - panel.width / 2,
+        panel.height / 2 - (item.y + item.height / 2) / PIXELS_PER_METER,
+        0.02,
+      );
+      item.model.scale.setScalar(0.026);
+      panel.mesh.add(item.model);
+    }
     if (old) {
       panel.mesh.position.copy(old.mesh.position);
       panel.mesh.quaternion.copy(old.mesh.quaternion);
@@ -292,7 +317,9 @@ export class Menu implements Feature, SelectInputHandler {
       g.fillStyle = item.flashUntil > 0 ? '#10141c' : '#ffffff';
       g.textAlign = 'center';
       g.font = 'bold 24px system-ui, sans-serif';
-      g.fillText(item.label, item.x + item.width / 2, item.y + item.height / 2 + 1, item.width - 12);
+      const modelColumn = item.model ? TOOL_MODEL_COLUMN : 0;
+      const labelWidth = item.width - modelColumn;
+      g.fillText(item.label, item.x + modelColumn + labelWidth / 2, item.y + item.height / 2 + 1, labelWidth - 12);
     }
     panel.markDirty();
   }
