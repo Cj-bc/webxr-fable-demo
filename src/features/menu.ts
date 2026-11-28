@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import type { App, Feature, FrameContext } from '../app';
 import type { HandState } from '../input';
 import type { ISelector } from '../selector';
-import type { SelectInputHandler, Tool } from '../tools';
+import type { Tool } from '../tools';
+import type { PointerEvent, PointerQuery, PointerTarget } from '../ui/pointers';
 import { CanvasPanel } from '../ui/canvasPanel';
 import { createToolModel } from '../ui/toolModels';
 
@@ -42,11 +43,6 @@ const HAND_OFFSET = 0.13;
  */
 const PALM_UP_SHOW = Math.cos(THREE.MathUtils.degToRad(50));
 const PALM_UP_HIDE = Math.cos(THREE.MathUtils.degToRad(65));
-/** 指先がパネルの手前この距離より離れると、次の押下を受け付ける (m) */
-const POKE_ARM_DISTANCE = 0.02;
-/** レイでメニューを押せる最大距離 (m) */
-const RAY_REACH = 2;
-
 const _forward = new THREE.Vector3();
 
 /**
@@ -54,7 +50,7 @@ const _forward = new THREE.Vector3();
  * 反対の手の指先で直接押すか、レイを当ててつまむ / トリガーで押す。
  * 左手が見つからないときは、最後にあった場所 (最初は正面) に留まる。
  */
-export class Menu implements Feature, SelectInputHandler {
+export class Menu implements Feature, PointerTarget {
   readonly name = 'menu';
   /** ボタンが押されたときの通知 (効果音など) */
   onPress: ((position: THREE.Vector3) => void) | null = null;
@@ -70,7 +66,6 @@ export class Menu implements Feature, SelectInputHandler {
   private time = 0;
   private placedInFront = false;
   private palmUp = false;
-  private readonly pokeArmed = new Map<HandState, boolean>();
   private readonly suppressors: (() => boolean)[] = [];
 
   constructor(
@@ -106,7 +101,6 @@ export class Menu implements Feature, SelectInputHandler {
   start(): void {
     this.placedInFront = false;
     this.palmUp = false;
-    this.pokeArmed.clear();
     this.layoutDirty = true;
   }
 
@@ -120,7 +114,6 @@ export class Menu implements Feature, SelectInputHandler {
     if (!panel) return;
     this.time = ctx.time;
     this.updatePlacement(panel, ctx);
-    if (panel.mesh.visible) this.updatePoke(panel);
     if (this.items.some((item) => item.flashUntil > 0 && item.flashUntil <= ctx.time)) {
       for (const item of this.items) if (item.flashUntil <= ctx.time) item.flashUntil = 0;
       this.dirty = true;
@@ -237,31 +230,18 @@ export class Menu implements Feature, SelectInputHandler {
     return hand.tracked && !(left.tracked && hand === left);
   }
 
-  /** 指先がパネルの表から裏へ抜けた瞬間に、その位置のボタンを押す。 */
-  private updatePoke(panel: CanvasPanel): void {
-    for (const hand of this.app.input.hands) {
-      if (!this.canPress(hand)) {
-        this.pokeArmed.set(hand, false);
-        continue;
-      }
-      const point = panel.project(hand.tipPosition);
-      if (!point || point.distance > POKE_ARM_DISTANCE) {
-        this.pokeArmed.set(hand, true);
-      } else if (point.distance < 0.005 && point.distance > -0.04 && this.pokeArmed.get(hand)) {
-        this.pokeArmed.set(hand, false);
-        this.pressAt(point.x, point.y, hand);
-      }
-    }
+  hitTest(query: PointerQuery, hand: HandState) {
+    const panel = this.panel;
+    if (!panel?.mesh.visible || !this.canPress(hand)) return null;
+    const point = query.kind === 'poke'
+      ? panel.project(query.position)
+      : panel.raycast(query.origin, query.direction);
+    return point && { distance: point.distance, panelPoint: point };
   }
 
-  interceptSelect(hand: HandState): boolean {
-    const panel = this.panel;
-    if (!panel || !panel.mesh.visible || !this.canPress(hand)) return false;
-    const point = panel.raycast(hand.rayOrigin, hand.rayDirection);
-    if (!point || point.distance > RAY_REACH) return false;
-    this.pressAt(point.x, point.y, hand);
-    // ボタンの隙間でも、メニュー越しに道具が発動しないよう入力は消費する。
-    return true;
+  onPointer(event: PointerEvent): void {
+    const point = event.hit?.panelPoint;
+    if (event.kind === 'down' && point) this.pressAt(point.x, point.y, event.hand);
   }
 
   private pressAt(x: number, y: number, hand: HandState): void {

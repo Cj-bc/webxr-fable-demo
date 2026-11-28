@@ -55,10 +55,9 @@ export class Holding implements Feature {
   private readonly held = new Map<HandState, Hold>();
 
   constructor(private readonly app: App) {
-    const { input, tools } = app;
-    tools.addInterceptor((hand) => this.tryHold(hand, 'select'));
+    const { input } = app;
+    app.grabs.register((hand, button) => this.tryHold(hand, button));
     input.on('selectend', (hand) => this.release(hand, 'select'));
-    input.on('squeezestart', (hand) => void this.tryHold(hand, 'squeeze'));
     input.on('squeezeend', (hand) => this.release(hand, 'squeeze'));
   }
 
