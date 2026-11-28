@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { FingerSelector } from './features/fingerSelector';
 import { Holding } from './features/holding';
+import { PalmCandidates } from './features/palmCandidates';
 import { Menu } from './features/menu';
 import { Persistence } from './features/persistence';
 import { SummonGrab } from './interactions/summonGrab';
@@ -86,6 +87,7 @@ export class App {
     this.renderer.xr.setReferenceSpaceType('local-floor');
     document.body.appendChild(this.renderer.domElement);
     this.add(this.input);
+    this.add(new PalmCandidates(this));
     this.add(this.menu);
     this.add({
       name: 'pointers',
