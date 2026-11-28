@@ -150,7 +150,7 @@ function occlusionMode(material: THREE.Material): OcclusionMode {
   };
   // 自前のシェーダーと、影の計算用のマテリアルには手を入れない。
   if (flags.isShaderMaterial || flags.isMeshDepthMaterial || flags.isMeshDistanceMaterial) return 'ignore';
-  // 深度テストをしないもの (メニュー、照準、ラベル) は、常に見せたいものなので隠さない。
+  // 深度テストをしないもの (照準、指先のラベルなど) は、常に見せたいものなので隠さない。
   if (!material.depthTest) return 'ignore';
   return (material.userData.occlusion as OcclusionMode | undefined) ?? 'soft';
 }

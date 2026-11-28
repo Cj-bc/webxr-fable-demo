@@ -15,7 +15,6 @@ const _inverse = new THREE.Matrix4();
 /** メニューはテクスチャが透明な部分を除き、指先などと同じ深度バッファを使う。 */
 export function useMenuDepth(material: THREE.MeshBasicMaterial): void {
   material.alphaTest = 1 / 255;
-  material.userData.occlusion = 'ignore';
 }
 
 /**
