@@ -2,7 +2,8 @@ import { BoxHelper, Vector3 } from 'three';
 import type { App, Feature, FrameContext } from '../app';
 import type { HandState } from '../input';
 import type { Item } from '../items';
-import { palmTargets } from '../interactions/palmTargets';
+import { fingerGapTargets } from '../interactions/fingerGapTargets';
+import { TargetParticles } from '../interactions/targetParticles';
 import { CanvasPanel } from '../ui/canvasPanel';
 import type { PointerEvent, PointerQuery, PointerTarget } from '../ui/pointers';
 
@@ -15,6 +16,7 @@ export class PalmCandidates implements Feature, PointerTarget {
   private panel: CanvasPanel | null = null;
   private candidates: Item[] = [];
   private highlight: BoxHelper | null = null;
+  private readonly effects: TargetParticles[] = [];
   private preview: Item | null = null;
   private readonly forward = new Vector3();
   selected: Item | null = null;
@@ -35,8 +37,16 @@ export class PalmCandidates implements Feature, PointerTarget {
     const aiming = hand.tracked && hand.isHand && !hand.selecting && !hand.squeezing
       && hand.fingerExtension > 0.8
       && this.forward.set(0, 0, -1).applyQuaternion(ctx.headQuaternion).dot(hand.palmNormal) > 0.55;
-    if (aiming && !this.panel?.mesh.visible) {
-      this.candidates = palmTargets(this.app.items, hand).slice(0, MAX_CANDIDATES);
+    const right = this.app.input.right;
+    const nearPanel = right.tracked && this.panel?.mesh.visible
+      && Math.abs(this.panel.project(right.tipPosition)?.distance ?? Infinity) < 0.07;
+    if (aiming && !nearPanel) {
+      const next = fingerGapTargets(this.app.items, ctx.headPosition, hand).slice(0, MAX_CANDIDATES);
+      if (next.length !== this.candidates.length || next.some((item, i) => item !== this.candidates[i])) {
+        this.candidates = next;
+        if (next.length && this.panel?.mesh.visible) this.draw(this.panel);
+        else if (!next.length) this.clearPanel();
+      }
     }
     const remaining = this.candidates.filter((item) => this.app.items.all.includes(item)
       && this.app.items.holdersOf(item).length === 0);
@@ -54,6 +64,11 @@ export class PalmCandidates implements Feature, PointerTarget {
       panel.mesh.lookAt(ctx.headPosition);
       panel.mesh.updateMatrixWorld();
     }
+    for (const [index, item] of this.candidates.entries()) {
+      const effect = this.effects[index] ??= new TargetParticles(this.app.scene, 0xffd275);
+      effect.update(item.object, ctx.time);
+    }
+    for (const effect of this.effects.slice(this.candidates.length)) effect.hide();
     this.showPreview(this.preview ?? this.selected);
   }
 
@@ -116,6 +131,7 @@ export class PalmCandidates implements Feature, PointerTarget {
   private clearPanel(): void {
     if (this.panel) this.panel.mesh.visible = false;
     this.candidates = [];
+    for (const effect of this.effects) effect.hide();
     this.preview = null;
   }
 
@@ -137,5 +153,7 @@ export class PalmCandidates implements Feature, PointerTarget {
     this.highlight?.removeFromParent();
     this.highlight?.dispose();
     this.highlight = null;
+    for (const effect of this.effects) effect.dispose();
+    this.effects.length = 0;
   }
 }

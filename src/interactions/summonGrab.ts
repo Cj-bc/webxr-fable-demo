@@ -1,8 +1,9 @@
-import { BoxHelper, Vector3 } from 'three';
+import { Vector3 } from 'three';
 import type { App, Feature, FrameContext } from '../app';
 import type { HandState } from '../input';
 import type { Item } from '../items';
 import { NearGrab } from './grabMethods';
+import { TargetParticles } from './targetParticles';
 import { palmTargets } from './palmTargets';
 
 interface Aim {
@@ -17,7 +18,7 @@ export class SummonGrab extends NearGrab implements Feature {
   readonly name = 'summonGrab';
   private readonly aims = new Map<HandState, Aim>();
   private readonly flights = new Map<Item, HandState>();
-  private readonly highlights = new Map<HandState, BoxHelper>();
+  private readonly highlights = new Map<HandState, TargetParticles>();
   private readonly destination = new Vector3();
 
   constructor(private readonly app: App) {
@@ -32,7 +33,7 @@ export class SummonGrab extends NearGrab implements Feature {
         && ![...this.flights.values()].includes(hand);
       if (!canAim) {
         this.aims.delete(hand);
-        this.show(hand);
+        this.show(hand, ctx.time);
         continue;
       }
       const aim = this.aims.get(hand);
@@ -42,10 +43,10 @@ export class SummonGrab extends NearGrab implements Feature {
         if (travel.dot(aim.direction) < -0.11 && travel.length() < 0.28) {
           this.flights.set(aim.item, hand);
           this.aims.delete(hand);
-          this.show(hand);
+          this.show(hand, ctx.time);
           continue;
         }
-        this.show(hand, aim.item);
+        this.show(hand, ctx.time, aim.item);
         continue;
       }
       const item = palmTargets(this.app.items, hand).find((candidate) => !this.flights.has(candidate));
@@ -54,7 +55,7 @@ export class SummonGrab extends NearGrab implements Feature {
           item, start: hand.grabPosition.clone(), direction: hand.palmNormal.clone(), time: ctx.time,
         });
       } else this.aims.delete(hand);
-      this.show(hand, item);
+      this.show(hand, ctx.time, item);
     }
     for (const [item, hand] of this.flights) {
       if (!hand.tracked || !this.app.items.all.includes(item) || this.app.items.holdersOf(item).length) {
@@ -70,25 +71,20 @@ export class SummonGrab extends NearGrab implements Feature {
     }
   }
 
-  private show(hand: HandState, item?: Item): void {
-    let box = this.highlights.get(hand);
-    if (!box && item) {
-      box = new BoxHelper(item.object, 0x59e9ff);
-      this.app.scene.add(box);
-      this.highlights.set(hand, box);
+  private show(hand: HandState, time: number, item?: Item): void {
+    let effect = this.highlights.get(hand);
+    if (!effect && item) {
+      effect = new TargetParticles(this.app.scene, 0x74dfff);
+      this.highlights.set(hand, effect);
     }
-    if (!box) return;
-    box.visible = !!item;
-    if (item) box.setFromObject(item.object);
+    if (item) effect?.update(item.object, time, hand.grabPosition);
+    else effect?.hide();
   }
 
   end(): void {
     this.aims.clear();
     this.flights.clear();
-    for (const box of this.highlights.values()) {
-      box.removeFromParent();
-      box.dispose();
-    }
+    for (const effect of this.highlights.values()) effect.dispose();
     this.highlights.clear();
   }
 }
