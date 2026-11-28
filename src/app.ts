@@ -7,6 +7,7 @@ import { Input } from './input';
 import { Items } from './items';
 import { Physics } from './physics';
 import { Tools } from './tools';
+import { createToolModel } from './ui/toolModels';
 import { OPTIONAL_FEATURES, REQUIRED_FEATURES } from './xrFeatures';
 
 /** 1 フレームぶんの情報。各機能の update に渡す。 */
@@ -40,7 +41,11 @@ export class App {
   readonly tools = new Tools(this.input);
   readonly items = new Items();
   readonly menu: Menu;
-  readonly fingerTools = new FingerSelector(this.scene, this.input.left, this.tools);
+  readonly fingerTools = new FingerSelector(
+    this.scene, this.input.left, this.tools,
+    // 先に描く指先モデルの深度が、後から描くメニューのモデルを隠さないようにする。
+    (tool) => createToolModel(tool.id, { depthWrite: false }),
+  );
   readonly holding: Holding;
   readonly physics = new Physics();
   session: XRSession | null = null;
