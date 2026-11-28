@@ -9,6 +9,9 @@ const material = new THREE.MeshBasicMaterial({
   transparent: true,
 });
 
+const noDepthWriteMaterial = material.clone();
+noDepthWriteMaterial.depthWrite = false;
+
 function part(
   model: THREE.Group,
   geometry: THREE.BufferGeometry,
@@ -29,7 +32,6 @@ function part(
 
   const mesh = new THREE.Mesh(geometry, material);
   mesh.position.set(x, y, z);
-  mesh.renderOrder = 102;
   model.add(mesh);
   return mesh;
 }
@@ -96,7 +98,10 @@ const factories = new Map<string, () => THREE.Group>([
 const templates = new Map<string, THREE.Group>();
 
 /** 道具を表すミニチュア。複数の選択 UI でジオメトリとマテリアルを共有する。 */
-export function createToolModel(id: string): THREE.Group | undefined {
+export function createToolModel(
+  id: string,
+  { renderOrder = 102, depthWrite = true } = {},
+): THREE.Group | undefined {
   const factory = factories.get(id);
   if (!factory) return;
   let template = templates.get(id);
@@ -104,5 +109,12 @@ export function createToolModel(id: string): THREE.Group | undefined {
     template = factory();
     templates.set(id, template);
   }
-  return template.clone();
+  const model = template.clone();
+  model.traverse((object) => {
+    if (object instanceof THREE.Mesh) {
+      object.renderOrder = renderOrder;
+      if (!depthWrite) object.material = noDepthWriteMaterial;
+    }
+  });
+  return model;
 }

@@ -29,6 +29,8 @@ const HEADER_HEIGHT = 96;
 const SECTION_HEIGHT = 40;
 const BUTTON_HEIGHT = 88;
 const TOOL_MODEL_COLUMN = 80;
+/** 指先の名前とモデル (101, 102) より手前に描く。 */
+const MENU_RENDER_ORDER = 103;
 const GROUP_TITLES: Record<Group, string> = { tool: '道具', toggle: '表示', action: '操作', experiment: '持った物の操作 (試作)' };
 const GROUPS: Group[] = ['tool', 'toggle', 'action', 'experiment'];
 
@@ -134,7 +136,7 @@ export class Menu implements Feature, SelectInputHandler {
     for (const tool of tools.list) {
       let model = this.toolModels.get(tool);
       if (!model) {
-        model = createToolModel(tool.id);
+        model = createToolModel(tool.id, { renderOrder: MENU_RENDER_ORDER + 1 });
         if (model) this.toolModels.set(tool, model);
       }
       this.addItem(
@@ -179,7 +181,7 @@ export class Menu implements Feature, SelectInputHandler {
     const old = this.panel;
     const panel = new CanvasPanel(PANEL_WIDTH, y / PIXELS_PER_METER, PIXELS_PER_METER);
     // メニューは他の仮想物体に埋もれないよう、最後に深度を無視して描く。
-    panel.mesh.renderOrder = 100;
+    panel.mesh.renderOrder = MENU_RENDER_ORDER;
     panel.mesh.material.depthTest = false;
     panel.mesh.material.depthWrite = false;
     for (const item of this.items) {

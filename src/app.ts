@@ -42,7 +42,9 @@ export class App {
   readonly items = new Items();
   readonly menu: Menu;
   readonly fingerTools = new FingerSelector(
-    this.scene, this.input.left, this.tools, (tool) => createToolModel(tool.id),
+    this.scene, this.input.left, this.tools,
+    // 先に描く指先モデルの深度が、後から描くメニューのモデルを隠さないようにする。
+    (tool) => createToolModel(tool.id, { depthWrite: false }),
   );
   readonly holding: Holding;
   readonly physics = new Physics();
