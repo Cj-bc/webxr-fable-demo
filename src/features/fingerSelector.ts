@@ -19,6 +19,8 @@ export class FingerSelector<T extends { label: string }> implements Feature, Sel
   private source: XRInputSource | null = null;
   private slots: readonly T[] = [];
   private consumed = false;
+  private confirmedIndex = -1;
+  private readonly models = new Map<T, THREE.Object3D>();
   private readonly labels: CanvasPanel[] = [];
   private readonly center = new THREE.Vector3();
 
@@ -26,6 +28,7 @@ export class FingerSelector<T extends { label: string }> implements Feature, Sel
     private readonly scene: THREE.Scene,
     private readonly hand: HandState,
     private readonly selection: ISelector<T>,
+    private readonly createModel?: (item: T) => THREE.Object3D | undefined,
   ) {}
 
   get isEnabled(): boolean {
@@ -71,10 +74,17 @@ export class FingerSelector<T extends { label: string }> implements Feature, Sel
       }
     }
 
-    if (released && !hand.selecting) this.consumed = false;
+    if (released && !hand.selecting && this.consumed) {
+      this.consumed = false;
+      this.hide();
+    }
     const palmThreshold = this.slots.length > 0 ? PALM_UP_HIDE : PALM_UP_SHOW;
     if (hand.squeezing || hand.palmNormal.y < palmThreshold) {
       this.hide();
+      return;
+    }
+    if (this.confirmedIndex >= 0) {
+      this.positionLabel(this.confirmedIndex, ctx.headPosition);
       return;
     }
     if (this.slots.length === 0) {
@@ -84,7 +94,7 @@ export class FingerSelector<T extends { label: string }> implements Feature, Sel
       this.slots = this.selection.list
         .filter((item) => item !== this.selection.active)
         .slice(0, hand.fingertips.length);
-      this.slots.forEach((item, i) => this.drawLabel(i, item.label));
+      this.slots.forEach((item, i) => this.drawChoice(i, item));
     }
 
     if (nearest >= 0) {
@@ -92,27 +102,37 @@ export class FingerSelector<T extends { label: string }> implements Feature, Sel
       this.consumed = true;
       this.hide();
       this.selection.setActive(item);
+      if (this.models.has(item)) {
+        this.confirmedIndex = nearest;
+        this.drawChoice(nearest, item);
+        this.positionLabel(nearest, ctx.headPosition);
+      }
       this.onSelect?.(hand.fingertips[nearest].position);
       return;
     }
 
+    this.slots.forEach((_, i) => this.positionLabel(i, ctx.headPosition));
+  }
+
+  private positionLabel(index: number, headPosition: THREE.Vector3): void {
+    const hand = this.hand;
     this.center.addVectors(hand.fingertips[0].position, hand.fingertips[hand.fingertips.length - 1].position)
       .multiplyScalar(0.5);
-    this.slots.forEach((_, i) => {
-      const mesh = this.labels[i].mesh;
-      // 隣のラベルと重なりにくいよう、指先の並びを少し広げる。
-      mesh.position.copy(hand.fingertips[i].position).lerp(this.center, -0.6)
-        .addScaledVector(hand.palmNormal, 0.025);
-      mesh.lookAt(ctx.headPosition);
-    });
+    const mesh = this.labels[index].mesh;
+    // 隣の候補と重なりにくいよう、指先の並びを少し広げる。
+    mesh.position.copy(hand.fingertips[index].position).lerp(this.center, -0.6)
+      .addScaledVector(hand.palmNormal, 0.025);
+    mesh.lookAt(headPosition);
   }
 
   private hide(): void {
     this.slots = [];
+    this.confirmedIndex = -1;
+    for (const model of this.models.values()) model.removeFromParent();
     for (const label of this.labels) label.mesh.visible = false;
   }
 
-  private drawLabel(index: number, text: string): void {
+  private drawChoice(index: number, item: T): void {
     let label = this.labels[index];
     if (!label) {
       label = new CanvasPanel(0.04, 0.018, 4000);
@@ -122,6 +142,16 @@ export class FingerSelector<T extends { label: string }> implements Feature, Sel
       this.scene.add(label.mesh);
       this.labels[index] = label;
     }
+    let model = this.models.get(item);
+    if (!model) {
+      model = this.createModel?.(item);
+      if (model) {
+        model.position.set(0, 0.024, 0.006);
+        model.scale.setScalar(0.032);
+        this.models.set(item, model);
+      }
+    }
+    if (model) label.mesh.add(model);
     const { context, canvas } = label;
     context.clearRect(0, 0, canvas.width, canvas.height);
     context.fillStyle = '#2a3142';
@@ -132,7 +162,7 @@ export class FingerSelector<T extends { label: string }> implements Feature, Sel
     context.font = 'bold 28px system-ui, sans-serif';
     context.textAlign = 'center';
     context.textBaseline = 'middle';
-    context.fillText(text, canvas.width / 2, canvas.height / 2, canvas.width - 16);
+    context.fillText(item.label, canvas.width / 2, canvas.height / 2, canvas.width - 16);
     label.markDirty();
     label.mesh.visible = true;
   }
