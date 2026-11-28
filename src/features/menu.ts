@@ -3,7 +3,7 @@ import type { App, Feature, FrameContext } from '../app';
 import type { HandState } from '../input';
 import type { ISelector } from '../selector';
 import type { SelectInputHandler, Tool } from '../tools';
-import { CanvasPanel } from '../ui/canvasPanel';
+import { CanvasPanel, useMenuDepth } from '../ui/canvasPanel';
 
 type Group = 'tool' | 'toggle' | 'action' | 'experiment';
 
@@ -166,9 +166,7 @@ export class Menu implements Feature, SelectInputHandler {
 
     const old = this.panel;
     const panel = new CanvasPanel(PANEL_WIDTH, y / PIXELS_PER_METER, PIXELS_PER_METER);
-    // メニューは他の仮想物体に埋もれないよう、最後に深度を無視して描く。
-    panel.mesh.renderOrder = 100;
-    panel.mesh.material.depthTest = false;
+    useMenuDepth(panel.mesh.material);
     if (old) {
       panel.mesh.position.copy(old.mesh.position);
       panel.mesh.quaternion.copy(old.mesh.quaternion);

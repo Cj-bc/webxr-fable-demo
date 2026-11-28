@@ -12,6 +12,12 @@ const _local = new THREE.Vector3();
 const _direction = new THREE.Vector3();
 const _inverse = new THREE.Matrix4();
 
+/** メニューはテクスチャが透明な部分を除き、指先などと同じ深度バッファを使う。 */
+export function useMenuDepth(material: THREE.MeshBasicMaterial): void {
+  material.alphaTest = 1 / 255;
+  material.userData.occlusion = 'ignore';
+}
+
 /**
  * 2D キャンバスをテクスチャにした板。immersive セッションでは DOM を表示できないので、
  * 空間内の UI はこうして自前で描く。
