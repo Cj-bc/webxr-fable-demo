@@ -3,6 +3,9 @@ import { FingerSelector } from './features/fingerSelector';
 import { Holding } from './features/holding';
 import { Menu } from './features/menu';
 import { Persistence } from './features/persistence';
+import { GrabMethods } from './interactions/grabMethods';
+import { PointerDispatcher, PokePointer, RayPointer } from './ui/pointers';
+import type { PointerMethod } from './ui/pointers';
 import { Input } from './input';
 import { Items } from './items';
 import { Physics } from './physics';
@@ -38,6 +41,11 @@ export class App {
   readonly camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 100);
   readonly input = new Input();
   readonly tools = new Tools(this.input);
+  readonly grabs = new GrabMethods();
+  readonly pointers = new PointerDispatcher();
+  private readonly poke = new PokePointer();
+  private readonly ray = new RayPointer();
+  private pointerMethods: readonly PointerMethod[] = [this.poke, this.ray];
   readonly items = new Items();
   readonly menu: Menu;
   readonly fingerTools = new FingerSelector(this.scene, this.input.left, this.tools);
@@ -58,10 +66,18 @@ export class App {
 
   constructor() {
     this.menu = new Menu(this, this.tools);
-    this.tools.addSelector(this.menu);
+    this.pointers.register(this.menu);
+    this.tools.addInterceptor((hand) =>
+      this.pointerMethods.some((method) => method.select?.(hand, this.pointers)));
     this.tools.addSelector(this.fingerTools);
     this.menu.addToggle('指で道具を選ぶ', () => this.fingerTools.isEnabled,
       (enabled) => this.fingerTools.setEnabled(enabled));
+    this.tools.addInterceptor((hand) => this.grabs.tryBegin(hand, 'select'));
+    this.input.on('squeezestart', (hand) => void this.grabs.tryBegin(hand, 'squeeze'));
+    this.menu.addToggle('UIを指で押す', () => this.pointerMethods.includes(this.poke),
+      (enabled) => this.togglePointer(this.poke, enabled));
+    this.menu.addToggle('UIをレイで選ぶ', () => this.pointerMethods.includes(this.ray),
+      (enabled) => this.togglePointer(this.ray, enabled));
     this.holding = new Holding(this);
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
@@ -70,6 +86,20 @@ export class App {
     document.body.appendChild(this.renderer.domElement);
     this.add(this.input);
     this.add(this.menu);
+    this.add({
+      name: 'pointers',
+      update: () => {
+        for (const method of this.pointerMethods) {
+          for (const hand of this.input.hands) method.update(hand, this.pointers);
+        }
+      },
+      end: () => {
+        for (const method of this.pointerMethods) {
+          this.pointers.cancelMethod(method.id);
+          method.reset();
+        }
+      },
+    });
     this.add(this.fingerTools);
     this.add(this.holding);
     // 終了時に、他の機能が物を片付けるより先に保存できるよう、ここで登録する。
@@ -80,6 +110,22 @@ export class App {
       this.camera.updateProjectionMatrix();
       this.renderer.setSize(window.innerWidth, window.innerHeight);
     });
+  }
+
+  setPointerMethods(methods: readonly PointerMethod[]): void {
+    const previous = this.pointerMethods;
+    this.pointerMethods = [...methods];
+    for (const method of previous) {
+      if (methods.includes(method)) continue;
+      this.pointers.cancelMethod(method.id);
+      method.reset();
+    }
+  }
+
+  private togglePointer(method: PointerMethod, enabled: boolean): void {
+    const methods = enabled ? [...this.pointerMethods, method] : this.pointerMethods.filter((m) => m !== method);
+    // メニューを操作できる手段を少なくとも一つ残す。
+    if (methods.length > 0) this.setPointerMethods(methods);
   }
 
   add<T extends Feature>(feature: T): T {

@@ -82,9 +82,8 @@ export class Toys implements Feature {
 
   constructor(private readonly app: App) {
     const { input, tools } = app;
-    tools.addInterceptor((hand) => this.tryGrab(hand, 'select'));
+    app.grabs.register((hand, button) => this.tryGrab(hand, button));
     input.on('selectend', (hand) => this.release(hand, 'select'));
-    input.on('squeezestart', (hand) => void this.tryGrab(hand, 'squeeze'));
     input.on('squeezeend', (hand) => this.release(hand, 'squeeze'));
 
     tools.register({
