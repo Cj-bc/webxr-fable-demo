@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { HandState } from '../../input';
 import type { Item } from '../../items';
-import { CanvasPanel } from '../../ui/canvasPanel';
+import { CanvasPanel, useMenuDepth } from '../../ui/canvasPanel';
 import { ITEM_ACTIONS } from '../actions';
 import type { InteractionFactory } from '../types';
 
@@ -75,8 +75,7 @@ const create: InteractionFactory = (ctx) => {
 
   function createPanel(): CanvasPanel {
     const p = new CanvasPanel(PANEL_WIDTH, heightPx / PIXELS_PER_METER, PIXELS_PER_METER);
-    p.mesh.renderOrder = 100;
-    p.mesh.material.depthTest = false;
+    useMenuDepth(p.mesh.material);
     p.mesh.visible = false;
     const g = p.context;
     g.fillStyle = 'rgba(16, 20, 28, 0.88)';

@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import type { FrameContext } from '../../app';
 import type { HandState } from '../../input';
 import type { Item } from '../../items';
+import { useMenuDepth } from '../../ui/canvasPanel';
 import { type ItemAction, ITEM_ACTIONS } from '../actions';
 import type { InteractionFactory } from '../types';
 
@@ -166,10 +167,9 @@ const create: InteractionFactory = (ctx) => {
           map: makeLabelTexture(action.label),
           transparent: true,
           toneMapped: false,
-          depthTest: false,
         }),
       );
-      mesh.renderOrder = 10;
+      useMenuDepth(mesh.material);
       group.add(mesh);
       return { action, mesh, near: false };
     });

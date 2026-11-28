@@ -2,7 +2,7 @@
 // 物を持っている間に、もう一方の手でつまむ (コントローラーではトリガー) と、つまんだ位置に円形のメニューが出る。
 // つまんだまま上下左右のどれかへ動かして離すと、その方向の操作を実行する。動かさずに離したら何もしない。
 import * as THREE from 'three';
-import { CanvasPanel } from '../../ui/canvasPanel';
+import { CanvasPanel, useMenuDepth } from '../../ui/canvasPanel';
 import type { HandState } from '../../input';
 import type { Item } from '../../items';
 import { ITEM_ACTIONS, type ItemAction } from '../actions';
@@ -84,8 +84,7 @@ const _matrix = new THREE.Matrix4();
 
 const create: InteractionFactory = (ctx) => {
   const panel = new CanvasPanel(PANEL_SIZE, PANEL_SIZE, PANEL_PPM);
-  panel.mesh.renderOrder = 20;
-  panel.mesh.material.depthTest = false;
+  useMenuDepth(panel.mesh.material);
   let menu: OpenMenu | null = null;
   const head = new THREE.Vector3();
   let headKnown = false;
